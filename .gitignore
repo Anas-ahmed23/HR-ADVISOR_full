@@ -1,0 +1,21 @@
+# Node / Next.js
+Frontend/node_modules/
+Frontend/.next/
+Frontend/out/
+Frontend/build/
+Frontend/dist/
+Frontend/.env.local
+Frontend/.env
+
+# Python
+.venv/
+Backend/__pycache__/
+Backend/*.pyc
+Backend/.env
+
+# VS Code
+.vscode/
+
+# OS / misc
+.DS_Store
+Thumbs.db
