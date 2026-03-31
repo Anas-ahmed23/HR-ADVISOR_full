@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">HR Advisor</string>
+    <string name="title_activity_main">HR Advisor</string>
+    <string name="package_name">com.gradvoice.hradvisor</string>
+    <string name="custom_url_scheme">com.gradvoice.hradvisor</string>
+</resources>
