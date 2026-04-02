@@ -1,12 +1,388 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import Link from "next/link"
-import { Mic, MicOff, PhoneOff } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import type { ReactNode } from "react"
+import { useEffect, useRef, useState } from "react"
+import {
+  AlertCircle,
+  BarChart3,
+  Brain,
+  CheckCircle2,
+  Clock,
+  FileText,
+  MessageSquare,
+  Mic,
+  MicOff,
+  PhoneOff,
+  PlayCircle,
+  RefreshCw,
+  Shield,
+  Sparkles,
+  Target,
+} from "lucide-react"
+
+import { ProductPanel, ProductShell } from "@/components/product-shell"
 import { WaveformVisualizer } from "@/components/WaveformVisualizer"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { HTTPClient } from "@/lib/http-client"
-import ShaderBackground from "@/components/ui/shader-background"
+
+type BrowserSpeechRecognition = {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onstart: (() => void) | null
+  onend: (() => void) | null
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null
+  onerror: ((event: SpeechRecognitionErrorLike) => void) | null
+  start: () => void
+  stop: () => void
+}
+
+type SpeechRecognitionResultLike = {
+  isFinal: boolean
+  0: {
+    transcript: string
+  }
+}
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number
+  results: ArrayLike<SpeechRecognitionResultLike>
+}
+
+type SpeechRecognitionErrorLike = {
+  error: string
+}
+
+type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition
+
+type SpeechRecognitionWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor
+  webkitSpeechRecognition?: SpeechRecognitionConstructor
+}
+
+type TranscriptEntry = {
+  id: string
+  speaker: "Candidate" | "AI"
+  text: string
+  timestamp: number
+}
+
+type InsightTone = "violet" | "cyan" | "emerald"
+
+type SummaryView = {
+  overview: string
+  recommendation: string
+  strengths: string[]
+  concerns: string[]
+  recruiterNotes: string[]
+}
+
+const systemResponseFragments = [
+  "processing your request",
+  "still processing",
+  "connected!",
+  "ready!",
+  "send a message",
+  "disconnected",
+  "conversation ended",
+]
+
+const topicLibrary = [
+  {
+    label: "Technical depth",
+    words: ["python", "java", "api", "architecture", "system", "backend", "cloud", "aws", "database"],
+  },
+  {
+    label: "Delivery ownership",
+    words: ["launched", "delivered", "ship", "deadline", "roadmap", "release", "deploy", "owned"],
+  },
+  {
+    label: "Collaboration",
+    words: ["team", "stakeholder", "partnered", "cross-functional", "mentor", "manager", "collaborated"],
+  },
+  {
+    label: "Problem solving",
+    words: ["improved", "reduced", "resolved", "optimized", "incident", "debugged", "solution"],
+  },
+]
+
+function formatDuration(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+}
+
+function formatTimestamp(timestamp: number, sessionStartedAt: number | null) {
+  if (!sessionStartedAt) return "00:00"
+  return formatDuration(timestamp - sessionStartedAt)
+}
+
+function countWords(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean).length
+}
+
+function extractTopics(entries: TranscriptEntry[]) {
+  const combined = entries.map((entry) => entry.text.toLowerCase()).join(" ")
+  return topicLibrary
+    .filter((topic) => topic.words.some((word) => combined.includes(word)))
+    .map((topic) => topic.label)
+}
+
+function getSummary(entries: TranscriptEntry[], durationMs: number): SummaryView {
+  const candidateTurns = entries.filter((entry) => entry.speaker === "Candidate")
+  const aiTurns = entries.filter((entry) => entry.speaker === "AI")
+  const candidateWordCount = candidateTurns.reduce((total, entry) => total + countWords(entry.text), 0)
+  const averageCandidateLength = candidateTurns.length
+    ? Math.round(candidateWordCount / candidateTurns.length)
+    : 0
+  const topics = extractTopics(entries)
+  const strongVerbHits = candidateTurns
+    .flatMap((entry) => entry.text.toLowerCase().split(/\W+/))
+    .filter((word) =>
+      ["led", "built", "owned", "improved", "delivered", "managed", "launched", "designed", "optimized"].includes(
+        word,
+      ),
+    ).length
+
+  if (!candidateTurns.length) {
+    return {
+      overview: "No candidate responses captured yet. Start a session to populate transcript, insights, and summary outputs.",
+      recommendation: "Begin a screening session before using this workspace for review.",
+      strengths: ["Ready for live transcription once the conversation starts."],
+      concerns: ["Insufficient evidence to assess communication or role fit signals."],
+      recruiterNotes: [
+        "Confirm microphone access and backend connectivity.",
+        "Use the transcript tab to verify capture quality during the call.",
+      ],
+    }
+  }
+
+  const strengths = [
+    strongVerbHits >= 2
+      ? "Action-oriented language suggests direct ownership and execution."
+      : "Candidate responses include concrete examples that can be validated in follow-up.",
+    topics.length
+      ? `Discussion touched ${topics.slice(0, 2).join(" and ")}.`
+      : "Transcript contains enough material for recruiter review.",
+  ]
+
+  const concerns = [
+    averageCandidateLength < 9
+      ? "Candidate responses were brief; schedule follow-up questions for deeper evidence."
+      : "Review transcript for depth against the specific role scorecard.",
+  ]
+
+  if (!topics.includes("Technical depth")) {
+    concerns.push("Technical depth was not strongly surfaced in the captured conversation.")
+  }
+
+  const recommendation =
+    candidateTurns.length >= 3 && strongVerbHits >= 2
+      ? "Review the transcript and advance if role-specific requirements match the captured examples."
+      : "Keep the candidate in review and run a deeper follow-up on missing role signals."
+
+  return {
+    overview: `Captured ${candidateTurns.length} candidate responses and ${aiTurns.length} assistant prompts over ${formatDuration(
+      durationMs,
+    )}. The session produced structured transcript context for recruiter review.`,
+    recommendation,
+    strengths,
+    concerns,
+    recruiterNotes: [
+      topics.length ? `Topics covered: ${topics.join(", ")}.` : "Topics covered remain broad and should be clarified.",
+      `Average candidate response length: ${averageCandidateLength || 0} words.`,
+      "Use transcript evidence before making shortlist decisions.",
+    ],
+  }
+}
+
+function getInsights(entries: TranscriptEntry[]) {
+  const candidateTurns = entries.filter((entry) => entry.speaker === "Candidate")
+  const candidateWordCount = candidateTurns.reduce((total, entry) => total + countWords(entry.text), 0)
+  const averageCandidateLength = candidateTurns.length
+    ? Math.round(candidateWordCount / candidateTurns.length)
+    : 0
+  const strongVerbHits = candidateTurns
+    .flatMap((entry) => entry.text.toLowerCase().split(/\W+/))
+    .filter((word) =>
+      ["led", "built", "owned", "improved", "delivered", "managed", "launched", "designed", "optimized"].includes(
+        word,
+      ),
+    ).length
+  const topics = extractTopics(entries)
+
+  return [
+    {
+      label: "Communication clarity",
+      value:
+        averageCandidateLength >= 14
+          ? "Detailed"
+          : averageCandidateLength >= 8
+            ? "Balanced"
+            : candidateTurns.length
+              ? "Brief"
+              : "Waiting",
+      detail:
+        candidateTurns.length
+          ? `Average candidate response length is ${averageCandidateLength} words.`
+          : "This will score once candidate answers are captured.",
+      tone: "violet" as InsightTone,
+      icon: MessageSquare,
+    },
+    {
+      label: "Ownership signals",
+      value: strongVerbHits >= 3 ? "Strong" : strongVerbHits >= 1 ? "Emerging" : candidateTurns.length ? "Light" : "Waiting",
+      detail:
+        strongVerbHits >= 1
+          ? `Ownership-oriented language appeared ${strongVerbHits} time${strongVerbHits > 1 ? "s" : ""}.`
+          : "No strong ownership verbs have been captured yet.",
+      tone: "cyan" as InsightTone,
+      icon: Target,
+    },
+    {
+      label: "Role-fit topics",
+      value: topics.length ? `${topics.length} detected` : "Pending",
+      detail: topics.length ? topics.join(", ") : "Relevant topic clusters appear after the discussion gets underway.",
+      tone: "emerald" as InsightTone,
+      icon: Brain,
+    },
+  ]
+}
+
+function getStatusView(params: {
+  error: string
+  isConnecting: boolean
+  isCallActive: boolean
+  isListening: boolean
+  isProcessing: boolean
+  isAISpeaking: boolean
+  isMicOn: boolean
+  hasCompletedSession: boolean
+}) {
+  if (params.error && !params.isCallActive) {
+    return {
+      label: "Needs attention",
+      description: "Resolve setup or connectivity before starting the session.",
+      badgeClassName: "border-red-400/20 bg-red-400/10 text-red-200",
+    }
+  }
+
+  if (params.isConnecting) {
+    return {
+      label: "Connecting",
+      description: "Checking backend health and preparing microphone capture.",
+      badgeClassName: "border-violet-400/20 bg-violet-400/10 text-violet-200",
+    }
+  }
+
+  if (params.isProcessing) {
+    return {
+      label: "Processing",
+      description: "The assistant is generating a response and updating the session.",
+      badgeClassName: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
+    }
+  }
+
+  if (params.isAISpeaking) {
+    return {
+      label: "AI speaking",
+      description: "Audio playback is active. Candidate speech can interrupt when needed.",
+      badgeClassName: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
+    }
+  }
+
+  if (params.isCallActive && params.isListening && params.isMicOn) {
+    return {
+      label: "Listening",
+      description: "Transcript capture is live and ready for candidate responses.",
+      badgeClassName: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
+    }
+  }
+
+  if (params.isCallActive && !params.isMicOn) {
+    return {
+      label: "Mic paused",
+      description: "The session is open, but microphone capture is temporarily disabled.",
+      badgeClassName: "border-white/15 bg-white/[0.06] text-white/70",
+    }
+  }
+
+  if (params.hasCompletedSession) {
+    return {
+      label: "Conversation ended",
+      description: "Review the transcript, insights, and summary panels.",
+      badgeClassName: "border-white/15 bg-white/[0.06] text-white/75",
+    }
+  }
+
+  return {
+    label: "Ready",
+    description: "Start a new AI interview session when you are ready to capture the conversation.",
+    badgeClassName: "border-white/15 bg-white/[0.06] text-white/75",
+  }
+}
+
+function MetaBadge({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/60">
+      {children}
+    </div>
+  )
+}
+
+function WorkflowStep({
+  label,
+  state,
+}: {
+  label: string
+  state: "complete" | "current" | "upcoming"
+}) {
+  const stateClasses =
+    state === "complete"
+      ? "border-emerald-400/25 bg-emerald-400/12 text-emerald-200"
+      : state === "current"
+        ? "border-violet-400/25 bg-violet-400/12 text-violet-200"
+        : "border-white/10 bg-white/[0.03] text-white/45"
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 text-sm ${stateClasses}`}>
+      <div className="text-[11px] uppercase tracking-[0.2em] opacity-70">Stage</div>
+      <div className="mt-2 font-medium">{label}</div>
+    </div>
+  )
+}
+
+function InsightCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  tone,
+}: ReturnType<typeof getInsights>[number]) {
+  const toneClasses =
+    tone === "cyan"
+      ? "bg-cyan-400/12 text-cyan-200"
+      : tone === "emerald"
+        ? "bg-emerald-400/12 text-emerald-200"
+        : "bg-violet-400/12 text-violet-200"
+
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+      <div className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 ${toneClasses}`}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="mt-4 flex items-start justify-between gap-3">
+        <div className="text-sm font-medium text-white">{label}</div>
+        <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-medium text-white/70">
+          {value}
+        </div>
+      </div>
+      <div className="mt-3 text-sm leading-7 text-white/58">{detail}</div>
+    </div>
+  )
+}
 
 export default function VoiceAgentPage() {
   const [userSpeech, setUserSpeech] = useState("")
@@ -19,197 +395,157 @@ export default function VoiceAgentPage() {
   const [isConnecting, setIsConnecting] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [isAISpeaking, setIsAISpeaking] = useState(false)
+  const [speechSupported, setSpeechSupported] = useState(true)
+  const [activeTab, setActiveTab] = useState("transcript")
+  const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([])
+  const [liveTranscript, setLiveTranscript] = useState("")
+  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null)
+  const [sessionEndedAt, setSessionEndedAt] = useState<number | null>(null)
+  const [hasCompletedSession, setHasCompletedSession] = useState(false)
+  const [clockTick, setClockTick] = useState(Date.now())
+
   const httpClientRef = useRef<HTTPClient | null>(null)
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null)
   const speechStartTimeRef = useRef<number>(0)
   const bargeInTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isCallActiveRef = useRef(false)
+  const isMicOnRef = useRef(true)
+  const isListeningRef = useRef(false)
+  const isAISpeakingRef = useRef(false)
+  const intentionalDisconnectRef = useRef(false)
 
   useEffect(() => {
+    isCallActiveRef.current = isCallActive
+  }, [isCallActive])
+
+  useEffect(() => {
+    isMicOnRef.current = isMicOn
+  }, [isMicOn])
+
+  useEffect(() => {
+    isListeningRef.current = isListening
+  }, [isListening])
+
+  useEffect(() => {
+    isAISpeakingRef.current = isAISpeaking
+  }, [isAISpeaking])
+
+  useEffect(() => {
+    if (!sessionStartedAt || sessionEndedAt) return
+
+    const interval = setInterval(() => {
+      setClockTick(Date.now())
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [sessionEndedAt, sessionStartedAt])
+
+  useEffect(() => {
+    const appendTranscriptEntry = (speaker: TranscriptEntry["speaker"], text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+
+      setTranscriptEntries((current) => [
+        ...current,
+        {
+          id: `${speaker}-${Date.now()}-${current.length}`,
+          speaker,
+          text: trimmed,
+          timestamp: Date.now(),
+        },
+      ])
+    }
+
     httpClientRef.current = new HTTPClient({
       serverUrl: process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000",
       onAIResponse: (response: string) => {
+        const normalized = response.toLowerCase()
+
         setAiResponse(response)
-        if (response.includes("Processing your request") || response.includes("Still processing")) {
+
+        if (normalized.includes("processing your request") || normalized.includes("still processing")) {
           setIsProcessing(true)
           setIsAISpeaking(false)
-        } else if (
-          response.includes("Connected!") ||
-          response.includes("Ready!") ||
-          response.includes("Send a message")
-        ) {
+          return
+        }
+
+        if (normalized.includes("connected!") || normalized.includes("ready!") || normalized.includes("send a message")) {
           setIsProcessing(false)
           setIsAISpeaking(false)
-        } else if (!response.includes("Processing")) {
-          setIsProcessing(false)
-          setIsAISpeaking(true)
+          return
+        }
+
+        setIsProcessing(false)
+        setIsAISpeaking(true)
+
+        if (!systemResponseFragments.some((fragment) => normalized.includes(fragment))) {
+          appendTranscriptEntry("AI", response)
         }
       },
       onConnectionChange: (connected: boolean) => {
         setIsConnected(connected)
         setIsCallActive(connected)
-        if (!connected) setAiResponse((prev) => (prev ? "Disconnected from server" : prev))
-        else setError("")
         setIsProcessing(false)
+        setIsAISpeaking(false)
+
+        if (connected) {
+          intentionalDisconnectRef.current = false
+          setError("")
+          return
+        }
+
+        if (!intentionalDisconnectRef.current) {
+          setError((current) => current || "Disconnected from the voice server.")
+        }
       },
-      onError: (errorMsg: string) => {
-        if (!errorMsg.includes("disconnected") && !errorMsg.includes("Disconnected")) setError(errorMsg)
+      onError: (errorMessage: string) => {
+        if (!errorMessage.toLowerCase().includes("disconnected")) {
+          setError(errorMessage)
+        }
         setIsProcessing(false)
+        setIsAISpeaking(false)
       },
     })
 
     if (typeof window !== "undefined") {
-      const SpeechRecognition = window.SpeechRecognition || (window as unknown as { webkitSpeechRecognition: typeof SpeechRecognition }).webkitSpeechRecognition
-      if (SpeechRecognition) recognitionRef.current = new SpeechRecognition()
-      else setError("Speech recognition is not supported. Try Chrome or Edge.")
+      const speechWindow = window as SpeechRecognitionWindow
+      const SpeechRecognitionCtor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition
+
+      if (SpeechRecognitionCtor) {
+        recognitionRef.current = new SpeechRecognitionCtor()
+      } else {
+        setSpeechSupported(false)
+        setError("Speech recognition is not supported in this browser. Use Chrome or Edge.")
+      }
     }
 
     return () => {
       httpClientRef.current?.disconnect()
+
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop()
         } catch {
-          // ignore
+          // ignore cleanup stop errors
         }
+      }
+
+      if (bargeInTimeoutRef.current) {
+        clearTimeout(bargeInTimeoutRef.current)
+        bargeInTimeoutRef.current = null
       }
     }
   }, [])
 
   const stopSpeechRecognition = () => {
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop()
-        setIsListening(false)
-      } catch {
-        // ignore
-      }
-    }
-  }
+    if (!recognitionRef.current) return
 
-  const startSpeechRecognition = async () => {
-    const rec = recognitionRef.current
-    if (!rec) return
     try {
-      if (isListening) {
-        stopSpeechRecognition()
-        await new Promise((r) => setTimeout(r, 200))
-      }
-      setError("")
-      await new Promise((r) => setTimeout(r, 200))
-      rec.continuous = true
-      rec.interimResults = true
-      rec.lang = "en-US"
-      rec.onstart = () => setIsListening(true)
-      rec.onend = () => {
-        setIsListening(false)
-        if (isCallActive && isMicOn)
-          bargeInTimeoutRef.current = setTimeout(() => {
-            if (recognitionRef.current && isCallActive && isMicOn && !isListening) recognitionRef.current.start()
-          }, 1000)
-      }
-      rec.onresult = (event: SpeechRecognitionEvent) => {
-        let finalTranscript = ""
-        let interimTranscript = ""
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript
-          if (event.results[i].isFinal) finalTranscript += transcript
-          else interimTranscript += transcript
-        }
-        if (interimTranscript.trim().length > 0 && isAISpeaking && isMicOn) {
-          const now = Date.now()
-          if (!speechStartTimeRef.current) speechStartTimeRef.current = now
-          if (now - speechStartTimeRef.current > 200) {
-            handleBargeIn()
-            speechStartTimeRef.current = 0
-            return
-          }
-        } else if (!interimTranscript.trim()) speechStartTimeRef.current = 0
-        if (finalTranscript && isMicOn) {
-          setUserSpeech((prev) => prev + " " + finalTranscript)
-          speechStartTimeRef.current = 0
-          if (bargeInTimeoutRef.current) {
-            clearTimeout(bargeInTimeoutRef.current)
-            bargeInTimeoutRef.current = null
-          }
-          httpClientRef.current?.sendTextMessage(finalTranscript).catch((err) => setError("Failed to send: " + (err as Error).message))
-        }
-      }
-      rec.onerror = (event: SpeechRecognitionErrorEvent) => {
-        speechStartTimeRef.current = 0
-        if (bargeInTimeoutRef.current) {
-          clearTimeout(bargeInTimeoutRef.current)
-          bargeInTimeoutRef.current = null
-        }
-        if (event.error === "no-speech") return
-        if (event.error === "not-allowed" || event.error === "permission-denied") setError("Microphone permission denied.")
-        else if (event.error === "audio-capture") setError("No microphone found.")
-        else setError(`Speech error: ${event.error}`)
-        setIsListening(false)
-      }
-      rec.start()
-    } catch (err) {
-      setError("Speech recognition error: " + (err instanceof Error ? err.message : "Unknown"))
-    }
-  }
-
-  const handleStartListening = async () => {
-    if (!httpClientRef.current) return
-    setError("")
-    setUserSpeech("")
-    setAiResponse("")
-    setIsMicOn(true)
-    setIsConnecting(true)
-    try {
-      await httpClientRef.current.connect()
-      await startSpeechRecognition()
-      setIsConnecting(false)
-    } catch (err) {
-      setError("Connection failed: " + (err instanceof Error ? err.message : "Unknown"))
-      setAiResponse("Error connecting to voice agent")
-      setIsConnecting(false)
-    }
-  }
-
-  const handleStopListening = () => {
-    stopSpeechRecognition()
-    httpClientRef.current?.disconnect()
-    setAiResponse("Disconnected")
-    setIsCallActive(false)
-    setIsConnecting(false)
-  }
-
-  const handleEndCall = async () => {
-    speechStartTimeRef.current = 0
-    if (bargeInTimeoutRef.current) {
-      clearTimeout(bargeInTimeoutRef.current)
-      bargeInTimeoutRef.current = null
-    }
-    if (isAISpeaking) await httpClientRef.current?.interrupt()
-    httpClientRef.current?.stopAudioPlayback()
-    stopSpeechRecognition()
-    httpClientRef.current?.disconnect()
-    setAiResponse("Conversation ended")
-    setIsAISpeaking(false)
-    setIsCallActive(false)
-    setIsConnecting(false)
-    setError("")
-    setTimeout(() => {
-      setUserSpeech("")
-      setAiResponse("")
-    }, 2000)
-  }
-
-  const handleToggleMic = () => {
-    const newMicState = !isMicOn
-    setIsMicOn(newMicState)
-    if (newMicState && isCallActive) setTimeout(() => startSpeechRecognition(), 300)
-    else if (!newMicState) {
-      stopSpeechRecognition()
-      speechStartTimeRef.current = 0
-      if (bargeInTimeoutRef.current) {
-        clearTimeout(bargeInTimeoutRef.current)
-        bargeInTimeoutRef.current = null
-      }
+      recognitionRef.current.stop()
+      setIsListening(false)
+      setLiveTranscript("")
+    } catch {
+      // ignore repeated stop calls from browsers that reject them
     }
   }
 
@@ -218,144 +554,747 @@ export default function VoiceAgentPage() {
     httpClientRef.current?.stopAudioPlayback()
     setIsAISpeaking(false)
     setAiResponse("")
-    setUserSpeech("")
     speechStartTimeRef.current = 0
+
     if (bargeInTimeoutRef.current) {
       clearTimeout(bargeInTimeoutRef.current)
       bargeInTimeoutRef.current = null
     }
   }
 
+  const startSpeechRecognition = async () => {
+    const recognition = recognitionRef.current
+    if (!recognition) return
+
+    try {
+      if (isListeningRef.current) {
+        stopSpeechRecognition()
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+
+      setError("")
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = "en-US"
+
+      recognition.onstart = () => setIsListening(true)
+
+      recognition.onend = () => {
+        setIsListening(false)
+
+        if (isCallActiveRef.current && isMicOnRef.current) {
+          bargeInTimeoutRef.current = setTimeout(() => {
+            if (
+              recognitionRef.current &&
+              isCallActiveRef.current &&
+              isMicOnRef.current &&
+              !isListeningRef.current
+            ) {
+              recognitionRef.current.start()
+            }
+          }, 1000)
+        }
+      }
+
+      recognition.onresult = (event: SpeechRecognitionEventLike) => {
+        let finalTranscript = ""
+        let interimTranscript = ""
+
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const transcript = event.results[index][0].transcript
+          if (event.results[index].isFinal) finalTranscript += transcript
+          else interimTranscript += transcript
+        }
+
+        setLiveTranscript(interimTranscript.trim())
+
+        if (interimTranscript.trim().length > 0 && isAISpeakingRef.current && isMicOnRef.current) {
+          const currentTime = Date.now()
+          if (!speechStartTimeRef.current) speechStartTimeRef.current = currentTime
+
+          if (currentTime - speechStartTimeRef.current > 200) {
+            void handleBargeIn()
+            return
+          }
+        } else if (!interimTranscript.trim()) {
+          speechStartTimeRef.current = 0
+        }
+
+        if (finalTranscript.trim() && isMicOnRef.current) {
+          const finalMessage = finalTranscript.trim()
+          setUserSpeech(finalMessage)
+          setLiveTranscript("")
+          setTranscriptEntries((current) => [
+            ...current,
+            {
+              id: `candidate-${Date.now()}-${current.length}`,
+              speaker: "Candidate",
+              text: finalMessage,
+              timestamp: Date.now(),
+            },
+          ])
+
+          speechStartTimeRef.current = 0
+
+          if (bargeInTimeoutRef.current) {
+            clearTimeout(bargeInTimeoutRef.current)
+            bargeInTimeoutRef.current = null
+          }
+
+          void httpClientRef.current?.sendTextMessage(finalMessage).catch((requestError) => {
+            setError(`Failed to send transcript: ${(requestError as Error).message}`)
+          })
+        }
+      }
+
+      recognition.onerror = (event: SpeechRecognitionErrorLike) => {
+        speechStartTimeRef.current = 0
+        setLiveTranscript("")
+
+        if (bargeInTimeoutRef.current) {
+          clearTimeout(bargeInTimeoutRef.current)
+          bargeInTimeoutRef.current = null
+        }
+
+        if (event.error === "no-speech") return
+        if (event.error === "not-allowed" || event.error === "permission-denied") setError("Microphone permission denied.")
+        else if (event.error === "audio-capture") setError("No microphone was found.")
+        else setError(`Speech recognition error: ${event.error}`)
+
+        setIsListening(false)
+      }
+
+      recognition.start()
+    } catch (recognitionError) {
+      setError(
+        `Speech recognition error: ${
+          recognitionError instanceof Error ? recognitionError.message : "Unknown browser error"
+        }`,
+      )
+    }
+  }
+
+  const handleStartListening = async () => {
+    if (!httpClientRef.current || !speechSupported) return
+
+    intentionalDisconnectRef.current = false
+    setError("")
+    setUserSpeech("")
+    setAiResponse("")
+    setLiveTranscript("")
+    setTranscriptEntries([])
+    setIsMicOn(true)
+    setIsConnecting(true)
+    setIsProcessing(false)
+    setIsAISpeaking(false)
+    setHasCompletedSession(false)
+    setSessionStartedAt(null)
+    setSessionEndedAt(null)
+    setActiveTab("transcript")
+
+    try {
+      await httpClientRef.current.connect()
+      setSessionStartedAt(Date.now())
+      setClockTick(Date.now())
+      await startSpeechRecognition()
+    } catch (connectionError) {
+      setError(
+        `Connection failed: ${
+          connectionError instanceof Error ? connectionError.message : "Unable to reach the voice server"
+        }`,
+      )
+    } finally {
+      setIsConnecting(false)
+    }
+  }
+
+  const handleEndCall = async () => {
+    intentionalDisconnectRef.current = true
+    speechStartTimeRef.current = 0
+    setLiveTranscript("")
+
+    if (bargeInTimeoutRef.current) {
+      clearTimeout(bargeInTimeoutRef.current)
+      bargeInTimeoutRef.current = null
+    }
+
+    if (isAISpeakingRef.current) {
+      await httpClientRef.current?.interrupt()
+    }
+
+    httpClientRef.current?.stopAudioPlayback()
+    stopSpeechRecognition()
+    httpClientRef.current?.disconnect()
+
+    setIsConnected(false)
+    setIsAISpeaking(false)
+    setIsProcessing(false)
+    setIsCallActive(false)
+    setIsConnecting(false)
+    setSessionEndedAt(Date.now())
+    setHasCompletedSession(true)
+    setActiveTab("summary")
+  }
+
+  const handleToggleMic = () => {
+    const nextMicState = !isMicOn
+    setIsMicOn(nextMicState)
+
+    if (nextMicState && isCallActive) {
+      setTimeout(() => {
+        void startSpeechRecognition()
+      }, 300)
+      return
+    }
+
+    stopSpeechRecognition()
+    speechStartTimeRef.current = 0
+
+    if (bargeInTimeoutRef.current) {
+      clearTimeout(bargeInTimeoutRef.current)
+      bargeInTimeoutRef.current = null
+    }
+  }
+
+  const statusView = getStatusView({
+    error,
+    isConnecting,
+    isCallActive,
+    isListening,
+    isProcessing,
+    isAISpeaking,
+    isMicOn,
+    hasCompletedSession,
+  })
+  const sessionDurationMs = sessionStartedAt ? (sessionEndedAt ?? clockTick) - sessionStartedAt : 0
+  const summary = getSummary(transcriptEntries, sessionDurationMs)
+  const insights = getInsights(transcriptEntries)
+  const candidateTurns = transcriptEntries.filter((entry) => entry.speaker === "Candidate").length
+  const aiTurns = transcriptEntries.filter((entry) => entry.speaker === "AI").length
+  const topics = extractTopics(transcriptEntries)
+  const progressPercentage = hasCompletedSession ? 100 : isCallActive ? Math.min(88, 48 + transcriptEntries.length * 8) : 18
+  const latestActivity = isProcessing
+    ? "Assistant is processing the latest candidate response."
+    : isAISpeaking
+      ? "Assistant audio playback is active."
+      : liveTranscript
+        ? "Candidate speech is being transcribed live."
+        : aiResponse || "Session activity will appear here."
+
   return (
-    <div className="min-h-screen flex flex-col relative">
-      <ShaderBackground />
-      <header className="border-b border-white/10 bg-white/5 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: "#7A4DFF" }}
-            >
-              <svg viewBox="0 0 100 100" className="w-6 h-6 text-white">
-                <circle cx="50" cy="50" r="48" fill="none" stroke="currentColor" strokeWidth="3" />
-                <rect x="38" y="30" width="6" height="40" rx="3" fill="currentColor" />
-                <rect x="48" y="20" width="6" height="50" rx="3" fill="currentColor" />
-                <rect x="58" y="35" width="6" height="35" rx="3" fill="currentColor" />
-              </svg>
-            </div>
-            <span className="text-xl font-bold text-white">HR Advisor</span>
-          </Link>
-          <span className="text-sm font-medium text-white/80" style={{ color: "#0EA5E9" }}>
-            Voice Agent
-          </span>
-        </div>
-      </header>
+    <ProductShell currentPath="/voice-agent" mainClassName="space-y-8 md:space-y-10">
 
-      <main className="flex-1 flex items-center justify-center p-8 relative z-10">
-        <div className="w-full max-w-4xl">
-          {error && !isCallActive ? (
-            <div className="text-center py-20">
-              <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-6 max-w-md mx-auto shadow-2xl">
-                <div className="text-red-400 font-medium mb-2">Connection Error</div>
-                <div className="text-red-300/90 text-sm whitespace-pre-line">{error}</div>
-                <p className="text-xs text-white/50 mt-2">
-                  Ensure the GradVoice backend is running on port 5000 (or set NEXT_PUBLIC_VOICE_SERVER_URL).
-                </p>
+      {/* ── PAGE HEADER ── */}
+      <section>
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-4">
+            <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-200">
+              <Sparkles className="h-3.5 w-3.5" />
+              Voice interview workspace
+            </div>
+            <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+              AI Voice Agent
+            </h1>
+            <p className="max-w-2xl text-base leading-8 text-white/60">
+              Run live AI screening conversations with real-time transcription, interruption support, and recruiter-ready review panels.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
+            <div className={`rounded-full border px-4 py-2 text-sm font-medium ${statusView.badgeClassName}`}>
+              {statusView.label}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <MetaBadge>Live transcription</MetaBadge>
+              <MetaBadge>Recruiter workflow</MetaBadge>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── STATS STRIP ── */}
+      <section>
+        <ProductPanel className="p-3 sm:p-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
+                <Clock className="h-4 w-4 text-violet-300" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Duration</div>
+                <div className="mt-1 text-lg font-semibold text-white">{formatDuration(sessionDurationMs)}</div>
+                <div className="mt-0.5 text-xs text-white/38">{sessionStartedAt ? "In progress" : "Not started"}</div>
               </div>
             </div>
-          ) : isConnecting ? (
-            <div className="text-center py-20">
-              <div className="inline-flex gap-2">
-                <div className="w-2 h-2 bg-[#7A4DFF] rounded-full animate-pulse" />
-                <div className="w-2 h-2 bg-[#7A4DFF] rounded-full animate-pulse" style={{ animationDelay: "0.2s" }} />
-                <div className="w-2 h-2 bg-[#7A4DFF] rounded-full animate-pulse" style={{ animationDelay: "0.4s" }} />
+            <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
+                <MessageSquare className="h-4 w-4 text-cyan-300" />
               </div>
-              <div className="mt-4 text-white/70">Connecting...</div>
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Turns</div>
+                <div className="mt-1 text-lg font-semibold text-white">{transcriptEntries.length}</div>
+                <div className="mt-0.5 text-xs text-white/38">{candidateTurns}C · {aiTurns}AI</div>
+              </div>
             </div>
-          ) : isCallActive ? (
-            <div className="space-y-8">
-              <div className="mb-8 space-y-4 max-h-96 overflow-y-auto px-4">
-                {userSpeech && (
-                  <div className="flex flex-col items-end space-y-2">
-                    <div className="rounded-xl p-4 max-w-3xl bg-white/10 border border-white/10 text-white backdrop-blur-sm">
-                      {userSpeech}
-                    </div>
-                    {isListening && (
-                      <div className="flex items-center gap-1 text-xs animate-pulse" style={{ color: "#0EA5E9" }}>
-                        Listening...
-                      </div>
-                    )}
-                  </div>
-                )}
-                {aiResponse && (
-                  <div className="flex flex-col items-start">
-                    <div className="text-white">{aiResponse}</div>
-                    {isProcessing && (
-                      <div className="text-xs text-green-400 mt-1">Processing...</div>
-                    )}
-                  </div>
-                )}
-                {!userSpeech && !aiResponse && (
-                  <div className="text-center py-12 text-white/60 text-sm">
-                    Start speaking to begin. You can interrupt the AI at any time.
-                  </div>
-                )}
+            <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
+                <Brain className="h-4 w-4 text-violet-300" />
               </div>
-              <WaveformVisualizer isActive={isMicOn && isListening} />
-              {isAISpeaking && (
-                <div className="text-center text-sm text-green-400 animate-pulse">
-                  AI is speaking — you can interrupt by talking
+              <div className="min-w-0">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Topics</div>
+                <div className="mt-1 text-lg font-semibold text-white">{topics.length}</div>
+                <div className="mt-0.5 truncate text-xs text-white/38">{topics.length ? topics[0] : "Pending"}</div>
+              </div>
+            </div>
+            <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
+                <BarChart3 className="h-4 w-4 text-cyan-300" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Progress</div>
+                <div className="mt-1 text-lg font-semibold text-white">{Math.round(progressPercentage)}%</div>
+                <div className="mt-1.5 h-1 rounded-full bg-white/[0.06]">
+                  <div
+                    className="h-1 rounded-full bg-[linear-gradient(90deg,#7A4DFF,#67E8F9)] transition-[width] duration-500"
+                    style={{ width: `${progressPercentage}%` }}
+                  />
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-20">
-              <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-8 max-w-md mx-auto text-white/70 shadow-2xl">
-                Conversation ended. Click &quot;Start Conversation&quot; to begin again.
               </div>
             </div>
-          )}
-        </div>
-      </main>
+          </div>
+        </ProductPanel>
+      </section>
 
-      <footer className="p-6 relative z-10">
-        <div className="max-w-4xl mx-auto rounded-full px-6 py-4 flex items-center justify-between bg-white/5 backdrop-blur-md border border-white/10 shadow-2xl">
-          {isCallActive ? (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-10 w-10 rounded-full text-white hover:bg-white/10"
-                onClick={handleToggleMic}
-                style={{
-                  color: isMicOn ? "white" : "#EF4444",
-                  backgroundColor: !isMicOn ? "rgba(239,68,68,0.15)" : "transparent",
-                }}
-              >
-                {isMicOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
-              </Button>
-              <Button
-                className="rounded-full px-6 gap-2 border border-red-500/30 bg-red-500/20 text-red-300 hover:bg-red-500/30"
-                onClick={handleEndCall}
-              >
-                <PhoneOff className="h-4 w-4" />
-                END CONVERSATION
-              </Button>
-            </>
-          ) : (
-            <div className="w-full flex justify-center">
-              <Button
-                className="rounded-full px-8 py-3 gap-2 text-white border-none disabled:opacity-70 hover:opacity-90 transition-opacity"
-                style={{ backgroundColor: "#7A4DFF" }}
-                onClick={handleStartListening}
-                disabled={isConnected || isConnecting}
-              >
-                {isConnecting ? "Connecting..." : "Start Conversation"}
-              </Button>
+      {/* ── MAIN WORKSPACE ── */}
+      <section className="grid gap-6 xl:grid-cols-2">
+
+        {/* LEFT: SESSION CONTROLS */}
+        <ProductPanel className="p-5 md:p-6">
+          <div className="space-y-5">
+
+            {/* Panel header */}
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-white/35">Live session</div>
+                <div className="mt-1.5 text-xl font-semibold tracking-[-0.02em] text-white">Session controls</div>
+              </div>
+              <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/60">
+                {isCallActive ? "In progress" : hasCompletedSession ? "Review ready" : "Pre-session"}
+              </div>
             </div>
-          )}
-        </div>
-      </footer>
-    </div>
+
+            {/* Workflow steps */}
+            <div className="grid grid-cols-3 gap-2">
+              <WorkflowStep label="Setup" state={sessionStartedAt ? "complete" : "current"} />
+              <WorkflowStep
+                label="Interview"
+                state={isCallActive ? "current" : hasCompletedSession ? "complete" : "upcoming"}
+              />
+              <WorkflowStep label="Review" state={hasCompletedSession ? "current" : "upcoming"} />
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div className="rounded-[22px] border border-red-400/20 bg-red-400/8 p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
+                  <div>
+                    <div className="text-sm font-medium text-red-200">Session notice</div>
+                    <div className="mt-1 text-sm leading-6 text-red-100/80">{error}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PRE-SESSION */}
+            {!isCallActive && !hasCompletedSession && !isConnecting && (
+              <div className="space-y-4">
+                <div className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(122,77,255,0.12),rgba(255,255,255,0.02))] p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-violet-400/20 bg-violet-400/12 text-violet-200">
+                      <PlayCircle className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-base font-semibold text-white">Start a guided screening session</div>
+                      <div className="mt-1.5 text-sm leading-6 text-white/55">
+                        HR Advisor opens a live session, captures the conversation in real time, and organizes transcript context for recruiter review.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    {[
+                      { title: "1. Connect", description: "Confirm voice backend and mic are ready." },
+                      { title: "2. Interview", description: "Speak naturally while transcript updates live." },
+                      { title: "3. Review", description: "Use transcript and summary panels post-call." },
+                    ].map((item) => (
+                      <div key={item.title} className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                        <div className="text-xs font-semibold text-white">{item.title}</div>
+                        <div className="mt-1 text-xs leading-5 text-white/48">{item.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Shield className="h-4 w-4 text-violet-200" />
+                      What to expect
+                    </div>
+                    <ul className="mt-3 space-y-2.5 text-xs text-white/52">
+                      {[
+                        "Transcript preserved for recruiter review.",
+                        "Barge-in lets the candidate interrupt naturally.",
+                        "Minimal interface noise during the session.",
+                      ].map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Clock className="h-4 w-4 text-cyan-200" />
+                      Setup notes
+                    </div>
+                    <ul className="mt-3 space-y-2.5 text-xs text-white/52">
+                      {[
+                        "Keep the voice backend running.",
+                        "Use Chrome or Edge for speech recognition.",
+                        "Grant mic permission before starting.",
+                      ].map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                <Button
+                  size="lg"
+                  className="w-full rounded-full bg-[#7A4DFF] text-white shadow-[0_16px_40px_rgba(122,77,255,0.28)] hover:bg-[#6a3ff2]"
+                  onClick={() => void handleStartListening()}
+                  disabled={!speechSupported || isConnecting || isConnected}
+                >
+                  <Mic className="h-4 w-4" />
+                  Start Conversation
+                </Button>
+              </div>
+            )}
+
+            {/* CONNECTING */}
+            {isConnecting && (
+              <div className="rounded-[24px] border border-violet-400/18 bg-violet-400/10 p-5">
+                <div className="flex items-center gap-3">
+                  <RefreshCw className="h-5 w-5 animate-spin text-violet-200" />
+                  <div className="text-base font-semibold text-white">Preparing the session</div>
+                </div>
+                <div className="mt-2 text-sm leading-6 text-white/58">
+                  Checking backend availability and initializing speech recognition.
+                </div>
+              </div>
+            )}
+
+            {/* ACTIVE CALL */}
+            {isCallActive && (
+              <div className="space-y-4">
+                <WaveformVisualizer
+                  isActive={(isMicOn && isListening) || isAISpeaking}
+                  variant={isAISpeaking ? "speaking" : "listening"}
+                />
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Candidate input</div>
+                    <div className="mt-2 line-clamp-3 text-sm leading-6 text-white/65">
+                      {liveTranscript || userSpeech || "Waiting for candidate speech…"}
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Session activity</div>
+                    <div className="mt-2 line-clamp-3 text-sm leading-6 text-white/65">{latestActivity}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Mic</div>
+                    <div className="mt-1.5 text-sm font-semibold text-white">{isMicOn ? "On" : "Muted"}</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">AI state</div>
+                    <div className="mt-1.5 text-sm font-semibold text-white">
+                      {isAISpeaking ? "Speaking" : isProcessing ? "Processing" : "Idle"}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Capture</div>
+                    <div className="mt-1.5 text-sm font-semibold text-white">
+                      {candidateTurns ? "Live" : "Waiting"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="flex-1 rounded-full border-white/15 bg-white/[0.03] text-white hover:bg-white/[0.08] hover:text-white"
+                    onClick={handleToggleMic}
+                  >
+                    {isMicOn ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    {isMicOn ? "Mute mic" : "Unmute"}
+                  </Button>
+                  <Button
+                    size="lg"
+                    className="flex-1 rounded-full border border-red-400/20 bg-red-400/10 text-red-100 hover:bg-red-400/18"
+                    onClick={() => void handleEndCall()}
+                  >
+                    <PhoneOff className="h-4 w-4" />
+                    End session
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* COMPLETED */}
+            {hasCompletedSession && !isCallActive && (
+              <div className="space-y-4">
+                <div className="rounded-[24px] border border-emerald-400/18 bg-emerald-400/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/12 text-emerald-200">
+                      <CheckCircle2 className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-base font-semibold text-white">Session complete</div>
+                      <div className="mt-1.5 line-clamp-2 text-sm leading-6 text-white/60">{summary.overview}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Recommended next step</div>
+                  <div className="mt-2 text-sm leading-6 text-white/62">{summary.recommendation}</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Button
+                    size="lg"
+                    className="w-full rounded-full bg-[#7A4DFF] text-white shadow-[0_16px_40px_rgba(122,77,255,0.28)] hover:bg-[#6a3ff2]"
+                    onClick={() => void handleStartListening()}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Start New Session
+                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      className="rounded-full border-white/15 bg-white/[0.03] text-white hover:bg-white/[0.08] hover:text-white"
+                      onClick={() => setActiveTab("transcript")}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      Transcript
+                    </Button>
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      className="rounded-full border-white/15 bg-white/[0.03] text-white hover:bg-white/[0.08] hover:text-white"
+                      onClick={() => setActiveTab("insights")}
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                      AI Insights
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </ProductPanel>
+
+        {/* RIGHT: REVIEW PANEL */}
+        <ProductPanel className="p-5 md:p-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-white/35">Review panel</div>
+                <div className="mt-1.5 text-xl font-semibold tracking-[-0.02em] text-white">Transcript & insights</div>
+              </div>
+              <TabsList className="h-auto w-full shrink-0 rounded-full border border-white/10 bg-white/[0.04] p-1 sm:w-auto">
+                <TabsTrigger value="transcript" className="rounded-full px-3 py-1.5 text-xs text-white/60 data-[state=active]:bg-white data-[state=active]:text-[#09090f]">
+                  Transcript
+                </TabsTrigger>
+                <TabsTrigger value="insights" className="rounded-full px-3 py-1.5 text-xs text-white/60 data-[state=active]:bg-white data-[state=active]:text-[#09090f]">
+                  Insights
+                </TabsTrigger>
+                <TabsTrigger value="summary" className="rounded-full px-3 py-1.5 text-xs text-white/60 data-[state=active]:bg-white data-[state=active]:text-[#09090f]">
+                  Summary
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            {/* TRANSCRIPT TAB */}
+            <TabsContent value="transcript">
+              <div className="max-h-[520px] space-y-2.5 overflow-y-auto pr-1">
+                {!transcriptEntries.length && !liveTranscript && (
+                  <div className="rounded-[22px] border border-dashed border-white/12 bg-black/20 p-5 text-sm leading-7 text-white/48">
+                    The transcript panel stays empty until the conversation starts. Candidate and assistant turns appear here with timestamps for later review.
+                  </div>
+                )}
+                {transcriptEntries.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className={`rounded-[22px] border p-4 ${
+                      entry.speaker === "Candidate"
+                        ? "border-violet-400/16 bg-violet-400/8"
+                        : "border-cyan-400/16 bg-cyan-400/8"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${entry.speaker === "Candidate" ? "text-violet-300" : "text-cyan-300"}`}>
+                        {entry.speaker}
+                      </div>
+                      <div className="text-[10px] text-white/35">
+                        {formatTimestamp(entry.timestamp, sessionStartedAt)}
+                      </div>
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-white/70">{entry.text}</div>
+                  </div>
+                ))}
+                {liveTranscript && (
+                  <div className="rounded-[22px] border border-dashed border-violet-400/18 bg-violet-400/8 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-200">
+                        Candidate speaking
+                      </div>
+                      <div className="text-[10px] text-violet-100/50">Live</div>
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-white/70">{liveTranscript}</div>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* INSIGHTS TAB */}
+            <TabsContent value="insights">
+              <div className="space-y-4">
+                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/52">
+                  Live insights are directional signals derived from the transcript — not final hiring decisions.
+                </div>
+                <div className="space-y-3">
+                  {insights.map((insight) => (
+                    <InsightCard key={insight.label} {...insight} />
+                  ))}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Brain className="h-4 w-4 text-violet-200" />
+                      Topics
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(topics.length ? topics : ["No topics captured yet"]).map((topic) => (
+                        <div
+                          key={topic}
+                          className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/60"
+                        >
+                          {topic}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Target className="h-4 w-4 text-cyan-200" />
+                      Review guidance
+                    </div>
+                    <ul className="mt-3 space-y-2 text-xs text-white/52">
+                      {[
+                        "Confirm examples before advancing the candidate.",
+                        "Look for role-specific depth beyond ownership language.",
+                        "Capture follow-up questions while fresh.",
+                      ].map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* SUMMARY TAB */}
+            <TabsContent value="summary">
+              <div className="space-y-3">
+                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center gap-2 text-sm font-medium text-white">
+                    <FileText className="h-4 w-4 text-violet-200" />
+                    Session overview
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-white/58">{summary.overview}</div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Next step</div>
+                    <div className="mt-2 text-sm leading-6 text-white/58">{summary.recommendation}</div>
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Recruiter notes</div>
+                    <ul className="mt-2 space-y-2 text-xs text-white/52">
+                      {summary.recruiterNotes.map((note) => (
+                        <li key={note} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
+                          <span>{note}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Sparkles className="h-4 w-4 text-violet-200" />
+                      Strengths
+                    </div>
+                    <ul className="mt-3 space-y-2 text-xs text-white/52">
+                      {summary.strengths.map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <AlertCircle className="h-4 w-4 text-cyan-200" />
+                      Concerns
+                    </div>
+                    <ul className="mt-3 space-y-2 text-xs text-white/52">
+                      {summary.concerns.map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </ProductPanel>
+
+      </section>
+    </ProductShell>
   )
 }

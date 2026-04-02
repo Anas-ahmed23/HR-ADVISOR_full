@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/User/.claude/plugins/marketplaces/ui-ux-pro-max-skill/.claude/skills/ui-ux-pro-max/**)",
+      "Bash(python scripts/search.py \"HR SaaS ATS dashboard analytics dark glassmorphism premium\" --design-system -p \"GradVoice HR Advisor\")",
+      "Bash(python cli/assets/scripts/search.py \"HR SaaS ATS dashboard analytics dark glassmorphism premium data-dense\" --design-system -p \"GradVoice HR Advisor\")",
+      "Bash(python3 -c ':*)",
+      "Bash(node:*)"
+    ]
+  }
+}

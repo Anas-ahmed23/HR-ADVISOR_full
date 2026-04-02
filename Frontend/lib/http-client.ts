@@ -1,4 +1,4 @@
-// Voice agent HTTP client — connects to Backend/Server.py (default localhost:5000)
+// Voice agent HTTP client — connects to Backend/agent.py (default localhost:5000)
 export class HTTPClient {
   private serverUrl: string
   private onAIResponse: (response: string) => void
@@ -114,12 +114,15 @@ export class HTTPClient {
 
   private base64ToBlob(base64: string, contentType: string): Blob {
     const byteCharacters = atob(base64)
-    const byteArrays: Uint8Array[] = []
+    const byteArrays: ArrayBuffer[] = []
     for (let offset = 0; offset < byteCharacters.length; offset += 512) {
       const slice = byteCharacters.slice(offset, offset + 512)
       const byteNumbers = new Array(slice.length)
       for (let i = 0; i < slice.length; i++) byteNumbers[i] = slice.charCodeAt(i)
-      byteArrays.push(new Uint8Array(byteNumbers))
+      const chunk = new Uint8Array(byteNumbers)
+      const buffer = new ArrayBuffer(chunk.byteLength)
+      new Uint8Array(buffer).set(chunk)
+      byteArrays.push(buffer)
     }
     return new Blob(byteArrays, { type: contentType })
   }

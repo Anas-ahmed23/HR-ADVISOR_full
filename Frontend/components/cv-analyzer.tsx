@@ -2,115 +2,121 @@
 
 import { useState, useRef } from "react"
 import { ATSDashboard } from "@/components/ats-dashboard"
+import { ProductPanel } from "@/components/product-shell"
+import { Button } from "@/components/ui/button"
 import {
-  FileSearch,
-  Settings,
-  Sparkles,
-  FileText,
-  Upload,
-  Loader2,
   AlertCircle,
-  CheckCircle2,
-  Clock,
-  Target,
-  Users,
+  ArrowRight,
+  Brain,
   Briefcase,
+  CheckCircle2,
+  FileSearch,
+  FileText,
+  Loader2,
+  Sparkles,
+  Target,
+  Upload,
+  Zap,
 } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 /* ─────────────────────────────────────────
-   SIDEBAR NAV ITEM
-───────────────────────────────────────── */
-function NavItem({
-  icon: Icon, label, active = false,
-}: {
-  icon: typeof FileSearch; label: string; active?: boolean
-}) {
-  const [hover, setHover] = useState(false)
-  return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: "flex", alignItems: "center", gap: 10,
-        width: "100%", padding: "9px 12px", borderRadius: 10,
-        fontSize: "0.8rem", fontWeight: active ? 700 : 500,
-        background: active ? "rgba(122,77,255,0.16)" : hover ? "rgba(255,255,255,0.04)" : "transparent",
-        color: active ? "#c4b5fd" : hover ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.42)",
-        transition: "all 0.15s",
-        cursor: "default",
-        userSelect: "none",
-      }}
-    >
-      <Icon style={{ width: 15, height: 15, flexShrink: 0 }} />
-      {label}
-      {active && (
-        <span style={{ marginLeft: "auto", width: 5, height: 5, borderRadius: "50%",
-          background: "#7A4DFF", boxShadow: "0 0 7px #7A4DFF", flexShrink: 0 }} />
-      )}
-    </div>
-  )
-}
-
-/* ─────────────────────────────────────────
-   FILE DROP ZONE
+   DROP ZONE
 ───────────────────────────────────────── */
 function DropZone({
-  label, sublabel, accept, file, onFile, icon: Icon, color,
+  label,
+  sublabel,
+  accept,
+  file,
+  onFile,
+  icon: Icon,
+  accentColor,
+  accentClass,
 }: {
-  label: string; sublabel: string; accept: string
-  file: File | null; onFile: (f: File) => void
-  icon: typeof FileText; color: string
+  label: string
+  sublabel: string
+  accept: string
+  file: File | null
+  onFile: (f: File) => void
+  icon: typeof FileText
+  accentColor: string
+  accentClass: string
 }) {
-  const ref  = useRef<HTMLInputElement>(null)
-  const [drag, setDrag] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging] = useState(false)
 
   return (
     <div
-      onClick={() => ref.current?.click()}
-      onDragOver={e  => { e.preventDefault(); setDrag(true)  }}
-      onDragLeave={() => setDrag(false)}
+      onClick={() => inputRef.current?.click()}
+      onDragOver={e => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={() => setDragging(false)}
       onDrop={e => {
-        e.preventDefault(); setDrag(false)
-        const f = e.dataTransfer.files[0]; if (f) onFile(f)
+        e.preventDefault()
+        setDragging(false)
+        const f = e.dataTransfer.files[0]
+        if (f) onFile(f)
       }}
+      className={cn(
+        "group relative flex cursor-pointer flex-col items-center justify-center gap-4 rounded-[24px] border-2 border-dashed p-8 text-center transition-all duration-200",
+        dragging
+          ? "scale-[1.01]"
+          : "hover:scale-[1.005]",
+      )}
       style={{
-        flex: 1, minHeight: 180,
-        border: `1.5px dashed ${drag ? color : file ? `${color}99` : "rgba(255,255,255,0.1)"}`,
-        borderRadius: 16, padding: "28px 20px", textAlign: "center",
-        cursor: "pointer",
-        background: drag ? `${color}0d` : file ? `${color}08` : "rgba(255,255,255,0.02)",
-        transition: "all 0.2s",
-        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12,
+        borderColor: dragging
+          ? accentColor
+          : file
+          ? `${accentColor}88`
+          : "rgba(255,255,255,0.1)",
+        background: dragging
+          ? `${accentColor}0e`
+          : file
+          ? `${accentColor}07`
+          : "rgba(255,255,255,0.018)",
       }}
     >
-      <input ref={ref} type="file" accept={accept} style={{ display: "none" }}
-        onChange={e => e.target.files?.[0] && onFile(e.target.files[0])} />
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={e => e.target.files?.[0] && onFile(e.target.files[0])}
+      />
 
-      <div style={{ width: 48, height: 48, borderRadius: 13, background: `${color}18`,
-        border: `1px solid ${color}33`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {/* Icon */}
+      <div
+        className="flex h-14 w-14 items-center justify-center rounded-2xl border transition-all duration-200"
+        style={{
+          background: file ? `${accentColor}18` : "rgba(255,255,255,0.04)",
+          borderColor: file ? `${accentColor}30` : "rgba(255,255,255,0.1)",
+        }}
+      >
         {file
-          ? <CheckCircle2 style={{ width: 22, height: 22, color }} />
-          : <Icon        style={{ width: 22, height: 22, color }} />
+          ? <CheckCircle2 className="h-6 w-6" style={{ color: accentColor }} />
+          : <Icon className="h-6 w-6 text-white/40 transition-colors group-hover:text-white/65" />
         }
       </div>
 
-      <div>
-        <p style={{ fontSize: "0.85rem", fontWeight: 700,
-          color: file ? "white" : "rgba(255,255,255,0.72)", margin: "0 0 4px",
-          maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {file ? file.name : label}
-        </p>
-        <p style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.3)", margin: 0 }}>
-          {file ? `${(file.size / 1024).toFixed(1)} KB · Click to replace` : sublabel}
-        </p>
+      {/* Label */}
+      <div className="space-y-1.5">
+        {file ? (
+          <>
+            <p className="max-w-[180px] truncate text-sm font-semibold text-white">{file.name}</p>
+            <p className="text-xs text-white/40">{(file.size / 1024).toFixed(1)} KB · Click to replace</p>
+          </>
+        ) : (
+          <>
+            <p className={cn("text-sm font-semibold", accentClass)}>{label}</p>
+            <p className="text-xs text-white/38">{sublabel}</p>
+          </>
+        )}
       </div>
 
+      {/* Upload hint */}
       {!file && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Upload style={{ width: 12, height: 12, color: "rgba(255,255,255,0.22)" }} />
-          <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.22)" }}>
-            Drag & drop or click
-          </span>
+        <div className="flex items-center gap-1.5 text-white/28">
+          <Upload className="h-3 w-3" />
+          <span className="text-xs">Drag & drop or click</span>
         </div>
       )}
     </div>
@@ -118,43 +124,47 @@ function DropZone({
 }
 
 /* ─────────────────────────────────────────
-   STAT CARD
+   PIPELINE STEP
 ───────────────────────────────────────── */
-function StatCard({ icon: Icon, label, value, color }: {
-  icon: typeof Target; label: string; value: string; color: string
+function PipelineStep({
+  step,
+  title,
+  description,
+}: {
+  step: string
+  title: string
+  description: string
 }) {
   return (
-    <div style={{ borderRadius: 14, border: "1px solid rgba(255,255,255,0.07)",
-      background: "rgba(255,255,255,0.025)", padding: "18px 20px",
-      display: "flex", alignItems: "center", gap: 14 }}>
-      <div style={{ width: 40, height: 40, borderRadius: 11, background: `${color}18`,
-        border: `1px solid ${color}28`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-        <Icon style={{ width: 18, height: 18, color }} />
-      </div>
+    <div className="flex gap-4">
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-violet-400/20 bg-violet-400/10 text-[10px] font-bold text-violet-300">
+        {step}
+      </span>
       <div>
-        <p style={{ fontSize: "1.3rem", fontWeight: 900, color: "white", margin: 0 }}>{value}</p>
-        <p style={{ fontSize: "0.62rem", color: "rgba(255,255,255,0.32)", fontWeight: 600,
-          margin: "2px 0 0", textTransform: "uppercase", letterSpacing: "0.12em" }}>{label}</p>
+        <p className="text-sm font-semibold text-white">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-white/48">{description}</p>
       </div>
     </div>
   )
 }
 
 /* ─────────────────────────────────────────
-   MAIN PAGE
+   MAIN COMPONENT
 ───────────────────────────────────────── */
 export function CVAnalyzer() {
-  const [cvFile, setCvFile]   = useState<File | null>(null)
-  const [jdFile, setJdFile]   = useState<File | null>(null)
+  const [cvFile, setCvFile] = useState<File | null>(null)
+  const [jdFile, setJdFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
-  const [result,  setResult]  = useState<any>(null)
-  const [error,   setError]   = useState<string | null>(null)
+  const [result, setResult] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const canRun = !!cvFile && !!jdFile && !loading
 
   const handleAnalyze = async () => {
     if (!cvFile || !jdFile) return
-    setLoading(true); setError(null); setResult(null)
+    setLoading(true)
+    setError(null)
+    setResult(null)
     try {
       const form = new FormData()
       form.append("cv_file", cvFile)
@@ -173,210 +183,317 @@ export function CVAnalyzer() {
   }
 
   const handleReset = () => {
-    setResult(null); setError(null); setCvFile(null); setJdFile(null)
+    setResult(null)
+    setError(null)
+    setCvFile(null)
+    setJdFile(null)
   }
 
-  /* ── ROOT: owns the entire viewport ── */
+  /* ── RESULTS VIEW ── */
+  if (result) {
+    return <ATSDashboard llm_analysis={result} onReset={handleReset} />
+  }
+
+  /* ── UPLOAD VIEW ── */
   return (
-    <div style={{
-      position: "fixed", inset: 0,
-      display: "flex",
-      background: "#07070f",
-      color: "white",
-      fontFamily: "inherit",
-      overflow: "hidden",
-    }}>
+    <div className="space-y-8">
 
-      {/* ══════════════════════════
-          SIDEBAR
-      ══════════════════════════ */}
-      <aside style={{
-        width: 216, flexShrink: 0,
-        background: "rgba(255,255,255,0.022)",
-        borderRight: "1px solid rgba(255,255,255,0.055)",
-        display: "flex", flexDirection: "column",
-        padding: "18px 10px", gap: 2,
-        overflowY: "auto",
-      }}>
-        {/* Logo — no link, no hover */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 8px 20px" }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10,
-            background: "linear-gradient(135deg,#7A4DFF,#b57bff)",
-            boxShadow: "0 0 20px rgba(122,77,255,0.45)",
-            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Sparkles style={{ width: 16, height: 16, color: "white" }} />
-          </div>
-          <div>
-            <p style={{ fontSize: "0.88rem", fontWeight: 900, margin: 0,
-              letterSpacing: "-0.02em", color: "white" }}>GradVoice</p>
-            <p style={{ fontSize: "0.5rem", color: "rgba(255,255,255,0.28)", margin: 0,
-              fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-              AI-Powered Recruitment
-            </p>
-          </div>
+      {/* PAGE HEADER */}
+      <div className="space-y-4">
+        <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-200">
+          <Sparkles className="h-3.5 w-3.5" />
+          Evidence-based AI analysis
         </div>
-
-        <p style={{ fontSize: "0.52rem", fontWeight: 700, textTransform: "uppercase",
-          letterSpacing: "0.2em", color: "rgba(255,255,255,0.22)", padding: "0 8px 5px", margin: 0 }}>
-          Navigation
+        <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+          CV Analyzer
+        </h1>
+        <p className="max-w-2xl text-base leading-8 text-white/60">
+          Upload a candidate CV and job description to get structured fit analysis, skill extraction, and evidence-backed scoring in seconds.
         </p>
+      </div>
 
-        {/* Only the page that actually works is active */}
-        <NavItem icon={FileSearch} label="Resume Analyzer" active />
-
-        <div style={{ flex: 1 }} />
-
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.055)", paddingTop: 10 }}>
-          <NavItem icon={Settings} label="Settings" />
-        </div>
-
-        {/* Engine status */}
-        <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10,
-          background: "rgba(52,211,153,0.07)", border: "1px solid rgba(52,211,153,0.15)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34d399",
-              boxShadow: "0 0 6px #34d399", flexShrink: 0 }} />
-            <span style={{ fontSize: "0.62rem", fontWeight: 700, color: "#86efac" }}>Engine Active</span>
+      {/* UPLOAD STATUS STRIP */}
+      <ProductPanel className="p-3 sm:p-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
+            <div className={cn(
+              "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
+              cvFile
+                ? "border-violet-400/30 bg-violet-400/15"
+                : "border-white/10 bg-white/[0.04]"
+            )}>
+              <FileText className={cn("h-4 w-4", cvFile ? "text-violet-300" : "text-white/35")} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Candidate CV</div>
+              <div className={cn("mt-1 text-sm font-semibold", cvFile ? "text-white" : "text-white/35")}>
+                {cvFile ? "Uploaded" : "Pending"}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-white/35">
+                {cvFile ? cvFile.name : "No file selected"}
+              </div>
+            </div>
           </div>
-          <p style={{ fontSize: "0.58rem", color: "rgba(255,255,255,0.3)", margin: 0 }}>
-            GLiNER + SBERT ready
-          </p>
-        </div>
-      </aside>
 
-      {/* ══════════════════════════
-          MAIN CONTENT
-      ══════════════════════════ */}
-      <main style={{
-        flex: 1, overflow: "auto",
-        background: "radial-gradient(ellipse 60% 35% at 65% -5%, rgba(122,77,255,0.09) 0%, transparent 55%)",
-      }}>
+          <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
+            <div className={cn(
+              "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
+              jdFile
+                ? "border-cyan-400/30 bg-cyan-400/15"
+                : "border-white/10 bg-white/[0.04]"
+            )}>
+              <Briefcase className={cn("h-4 w-4", jdFile ? "text-cyan-300" : "text-white/35")} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Job Description</div>
+              <div className={cn("mt-1 text-sm font-semibold", jdFile ? "text-white" : "text-white/35")}>
+                {jdFile ? "Uploaded" : "Pending"}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-white/35">
+                {jdFile ? jdFile.name : "No file selected"}
+              </div>
+            </div>
+          </div>
 
-        {/* ── RESULTS ── */}
-        {result && <ATSDashboard llm_analysis={result} onReset={handleReset} />}
-
-        {/* ── UPLOAD VIEW ── */}
-        {!result && (
-          <div style={{ padding: "36px 40px", display: "flex", flexDirection: "column", gap: 28, maxWidth: 960 }}>
-
-            {/* Page header */}
+          <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
+            <div className={cn(
+              "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
+              canRun
+                ? "border-emerald-400/30 bg-emerald-400/15"
+                : "border-white/10 bg-white/[0.04]"
+            )}>
+              <CheckCircle2 className={cn("h-4 w-4", canRun ? "text-emerald-300" : "text-white/35")} />
+            </div>
             <div>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 7,
-                fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.2em",
-                color: "#9B6FFF", background: "rgba(122,77,255,0.12)", border: "1px solid rgba(122,77,255,0.22)",
-                padding: "5px 13px", borderRadius: 999, marginBottom: 14 }}>
-                <Sparkles style={{ width: 10, height: 10 }} />
-                Evidence-Based AI Analysis
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Ready</div>
+              <div className={cn("mt-1 text-sm font-semibold", canRun ? "text-white" : "text-white/35")}>
+                {canRun ? "Ready" : "Waiting"}
               </div>
-              <h1 style={{ fontSize: "1.9rem", fontWeight: 900, margin: "0 0 6px",
-                letterSpacing: "-0.03em", color: "white" }}>
-                ATS Resume Analyzer
-              </h1>
-              <p style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.38)", margin: 0 }}>
-                AI-powered recruitment insights and candidate analysis.
-              </p>
+              <div className="mt-0.5 text-xs text-white/35">
+                {cvFile && jdFile ? "Both files uploaded" : "Upload both files"}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
+            <div className={cn(
+              "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
+              loading
+                ? "border-violet-400/30 bg-violet-400/15"
+                : "border-white/10 bg-white/[0.04]"
+            )}>
+              {loading
+                ? <Loader2 className="h-4 w-4 animate-spin text-violet-300" />
+                : <FileSearch className="h-4 w-4 text-white/35" />
+              }
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Analysis</div>
+              <div className={cn("mt-1 text-sm font-semibold", loading ? "text-white" : "text-white/35")}>
+                {loading ? "Running" : "Idle"}
+              </div>
+              <div className="mt-0.5 text-xs text-white/35">
+                {loading ? "Processing files…" : "Awaiting run command"}
+              </div>
+            </div>
+          </div>
+        </div>
+      </ProductPanel>
+
+      {/* MAIN WORKSPACE */}
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+
+        {/* LEFT: UPLOAD PANEL */}
+        <ProductPanel className="p-6 md:p-7">
+          <div className="space-y-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-white/35">Document upload</div>
+                <div className="mt-1.5 text-xl font-semibold tracking-[-0.02em] text-white">Upload documents</div>
+              </div>
+              <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/55">
+                {cvFile && jdFile ? "Both ready" : cvFile || jdFile ? "1 of 2 uploaded" : "No files yet"}
+              </div>
             </div>
 
-            {/* Stat cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
-              <StatCard icon={FileText} label="Total Resumes"    value="0"  color="#7A4DFF" />
-              <StatCard icon={Users}    label="Analyzed"         value="0"  color="#06b6d4" />
-              <StatCard icon={Target}   label="Avg Match Score"  value="0%" color="#34d399" />
-              <StatCard icon={Clock}    label="Avg Process Time" value="0s" color="#f59e0b" />
+            {/* Drop zones */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DropZone
+                label="Candidate CV"
+                sublabel="PDF, DOCX, or TXT"
+                accept=".pdf,.docx,.txt"
+                file={cvFile}
+                onFile={setCvFile}
+                icon={FileText}
+                accentColor="#7A4DFF"
+                accentClass="text-violet-300"
+              />
+              <DropZone
+                label="Job Description"
+                sublabel="PDF, DOCX, or TXT"
+                accept=".pdf,.docx,.txt"
+                file={jdFile}
+                onFile={setJdFile}
+                icon={Briefcase}
+                accentColor="#06b6d4"
+                accentClass="text-cyan-300"
+              />
             </div>
 
-            {/* Upload panel */}
-            <div style={{ borderRadius: 18, border: "1px solid rgba(255,255,255,0.07)",
-              background: "rgba(255,255,255,0.025)", padding: 28 }}>
-              <div style={{ marginBottom: 20 }}>
-                <h2 style={{ fontSize: "1rem", fontWeight: 800, color: "white", margin: "0 0 4px" }}>
-                  Upload Documents
-                </h2>
-                <p style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.35)", margin: 0 }}>
-                  Upload the candidate's CV and the job description to begin analysis.
-                </p>
+            {/* File summary */}
+            {(cvFile || jdFile) && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {cvFile && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-violet-400/15 bg-violet-400/8 px-4 py-3">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-violet-300" />
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-medium text-white">{cvFile.name}</div>
+                      <div className="text-[10px] text-white/40">{(cvFile.size / 1024).toFixed(1)} KB</div>
+                    </div>
+                  </div>
+                )}
+                {jdFile && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-cyan-400/15 bg-cyan-400/8 px-4 py-3">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-cyan-300" />
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-medium text-white">{jdFile.name}</div>
+                      <div className="text-[10px] text-white/40">{(jdFile.size / 1024).toFixed(1)} KB</div>
+                    </div>
+                  </div>
+                )}
               </div>
+            )}
 
-              {/* Drop zones */}
-              <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
-                <DropZone label="Candidate CV"    sublabel="PDF, DOCX, or TXT" accept=".pdf,.docx,.txt"
-                  file={cvFile} onFile={setCvFile} icon={FileText}  color="#7A4DFF" />
-                <DropZone label="Job Description" sublabel="PDF, DOCX, or TXT" accept=".pdf,.docx,.txt"
-                  file={jdFile} onFile={setJdFile} icon={Briefcase} color="#06b6d4" />
-              </div>
-
-              {/* Error */}
-              {error && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px",
-                  borderRadius: 10, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.22)",
-                  color: "#fca5a5", fontSize: "0.78rem", marginBottom: 16 }}>
-                  <AlertCircle style={{ width: 15, height: 15, flexShrink: 0 }} />
-                  {error}
+            {/* Error */}
+            {error && (
+              <div className="rounded-[22px] border border-red-400/20 bg-red-400/8 p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
+                  <div>
+                    <div className="text-sm font-medium text-red-200">Analysis failed</div>
+                    <div className="mt-1 text-sm leading-6 text-red-100/75">{error}</div>
+                  </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Run button */}
-              <button
-                onClick={handleAnalyze}
+            {/* CTA */}
+            <div className="space-y-3">
+              <Button
+                size="lg"
+                className="w-full rounded-full bg-[#7A4DFF] text-white shadow-[0_16px_40px_rgba(122,77,255,0.28)] hover:bg-[#6a3ff2] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+                onClick={() => void handleAnalyze()}
                 disabled={!canRun}
-                style={{
-                  width: "100%", padding: 14, borderRadius: 12, border: "none",
-                  fontSize: "0.88rem", fontWeight: 800,
-                  cursor: canRun ? "pointer" : "not-allowed",
-                  background: canRun
-                    ? "linear-gradient(135deg,#7A4DFF,#9B6FFF)"
-                    : "rgba(255,255,255,0.06)",
-                  color: canRun ? "white" : "rgba(255,255,255,0.28)",
-                  boxShadow: canRun ? "0 0 24px rgba(122,77,255,0.35)" : "none",
-                  transition: "all 0.2s",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                }}
               >
-                {loading
-                  ? <><Loader2 style={{ width: 16, height: 16, animation: "spin 1s linear infinite" }} />
-                      Analyzing — this may take a moment…</>
-                  : <><Sparkles style={{ width: 16, height: 16 }} /> Run Analysis</>
-                }
-              </button>
-
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Analyzing — this may take a moment…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Run Analysis
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </Button>
               {!cvFile && !jdFile && (
-                <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.2)",
-                  textAlign: "center", margin: "12px 0 0" }}>
+                <p className="text-center text-xs text-white/28">
                   Upload both files above to enable analysis
                 </p>
               )}
+              {cvFile && !jdFile && (
+                <p className="text-center text-xs text-white/28">
+                  Add a job description to continue
+                </p>
+              )}
+              {!cvFile && jdFile && (
+                <p className="text-center text-xs text-white/28">
+                  Add the candidate CV to continue
+                </p>
+              )}
             </div>
+          </div>
+        </ProductPanel>
 
-            {/* How it works */}
-            <div style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,0.06)",
-              background: "rgba(255,255,255,0.018)", padding: "22px 24px" }}>
-              <h3 style={{ fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase",
-                letterSpacing: "0.16em", color: "rgba(255,255,255,0.3)", margin: "0 0 16px" }}>
-                How It Works
-              </h3>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
+        {/* RIGHT: PIPELINE + OUTPUTS */}
+        <div className="space-y-4">
+
+          {/* How it works */}
+          <ProductPanel className="p-5 md:p-6">
+            <div className="space-y-5">
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-white/35">Analysis pipeline</div>
+                <div className="mt-1.5 text-lg font-semibold tracking-[-0.02em] text-white">How it works</div>
+              </div>
+              <div className="space-y-5">
+                <PipelineStep
+                  step="01"
+                  title="Entity Extraction"
+                  description="GLiNER extracts technical skills, tools, and requirements from both the CV and job description."
+                />
+                <PipelineStep
+                  step="02"
+                  title="Semantic Matching"
+                  description="SBERT embeddings and agglomerative clustering find deep skill alignments beyond keyword matching."
+                />
+                <PipelineStep
+                  step="03"
+                  title="Score & Report"
+                  description="Weighted scoring across technical, experience, and education dimensions with evidence-backed reasoning."
+                />
+              </div>
+            </div>
+          </ProductPanel>
+
+          {/* What you get */}
+          <ProductPanel className="p-5 md:p-6">
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-white/35">Analysis outputs</div>
+                <div className="mt-1.5 text-lg font-semibold tracking-[-0.02em] text-white">What you get</div>
+              </div>
+              <div className="space-y-3">
                 {[
-                  { step: "01", title: "Entity Extraction",  desc: "GLiNER extracts technical skills, tools, and requirements from both documents." },
-                  { step: "02", title: "Semantic Matching",  desc: "SBERT embeddings + agglomerative clustering find deep skill alignments." },
-                  { step: "03", title: "Score & Report",     desc: "Weighted scoring across technical, experience, and education dimensions." },
-                ].map(({ step, title, desc }) => (
-                  <div key={step} style={{ display: "flex", gap: 12 }}>
-                    <span style={{ fontSize: "0.6rem", fontWeight: 900, color: "#7A4DFF",
-                      background: "rgba(122,77,255,0.12)", border: "1px solid rgba(122,77,255,0.2)",
-                      borderRadius: 7, padding: "3px 8px", height: "fit-content", flexShrink: 0 }}>{step}</span>
+                  {
+                    icon: Target,
+                    label: "Fit score",
+                    detail: "Weighted match percentage across all dimensions.",
+                    accent: "text-violet-300",
+                    bg: "bg-violet-400/12 border-violet-400/20",
+                  },
+                  {
+                    icon: Brain,
+                    label: "Skill gap analysis",
+                    detail: "Missing and matched skills with evidence from both documents.",
+                    accent: "text-cyan-300",
+                    bg: "bg-cyan-400/12 border-cyan-400/20",
+                  },
+                  {
+                    icon: Zap,
+                    label: "Recruiter recommendation",
+                    detail: "Structured verdict with priority improvements and next steps.",
+                    accent: "text-emerald-300",
+                    bg: "bg-emerald-400/12 border-emerald-400/20",
+                  },
+                ].map(({ icon: Icon, label, detail, accent, bg }) => (
+                  <div key={label} className="flex items-start gap-3 rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
+                    <div className={cn("mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border", bg)}>
+                      <Icon className={cn("h-4 w-4", accent)} />
+                    </div>
                     <div>
-                      <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "white", margin: "0 0 4px" }}>{title}</p>
-                      <p style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.35)", margin: 0, lineHeight: 1.6 }}>{desc}</p>
+                      <div className="text-sm font-medium text-white">{label}</div>
+                      <div className="mt-0.5 text-xs leading-5 text-white/48">{detail}</div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
-        )}
-      </main>
+          </ProductPanel>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      </div>
     </div>
   )
 }
