@@ -4,6 +4,7 @@ export class HTTPClient {
   private onAIResponse: (response: string) => void
   private onConnectionChange: (connected: boolean) => void
   private onError: (error: string) => void
+  private onPlaybackEnded: (() => void) | undefined
   private currentAudio: HTMLAudioElement | null = null
 
   constructor(config: {
@@ -11,11 +12,13 @@ export class HTTPClient {
     onAIResponse: (response: string) => void
     onConnectionChange: (connected: boolean) => void
     onError: (error: string) => void
+    onPlaybackEnded?: () => void
   }) {
     this.serverUrl = config.serverUrl || "http://localhost:5000"
     this.onAIResponse = config.onAIResponse
     this.onConnectionChange = config.onConnectionChange
     this.onError = config.onError
+    this.onPlaybackEnded = config.onPlaybackEnded
   }
 
   async connect(): Promise<void> {
@@ -47,7 +50,12 @@ export class HTTPClient {
       const data = await response.json()
       if (data.error) throw new Error(data.error)
       this.onAIResponse(data.text_response)
-      if (data.audio_base64) this.playAudioResponse(data.audio_base64)
+      if (data.audio_base64) {
+        this.playAudioResponse(data.audio_base64)
+      } else {
+        // No audio (interrupted or TTS skipped) — notify immediately so frontend resets mic state
+        this.onPlaybackEnded?.()
+      }
     } catch (error) {
       this.onError(`Request failed: ${error}`)
     }
@@ -65,7 +73,12 @@ export class HTTPClient {
       const data = await response.json()
       if (data.error) throw new Error(data.error)
       this.onAIResponse(data.text_response)
-      if (data.audio_base64) this.playAudioResponse(data.audio_base64)
+      if (data.audio_base64) {
+        this.playAudioResponse(data.audio_base64)
+      } else {
+        // No audio (interrupted or TTS skipped) — notify immediately so frontend resets mic state
+        this.onPlaybackEnded?.()
+      }
     } catch (error) {
       this.onError(`Request failed: ${error}`)
     }
@@ -89,10 +102,12 @@ export class HTTPClient {
       this.currentAudio.onended = () => {
         URL.revokeObjectURL(audioUrl)
         this.currentAudio = null
+        this.onPlaybackEnded?.()
       }
       this.currentAudio.onerror = () => {
         URL.revokeObjectURL(audioUrl)
         this.currentAudio = null
+        this.onPlaybackEnded?.()
       }
       this.currentAudio.play().catch((err) => {
         console.error("Audio playback failed:", err)

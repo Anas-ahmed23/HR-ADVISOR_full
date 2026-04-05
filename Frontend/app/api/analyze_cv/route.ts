@@ -82,17 +82,10 @@ export async function POST(request: Request) {
     )
   }
 
-  const llm = raw.llm_analysis || (raw as Record<string, unknown>) || {}
-  console.log("[analyze_cv] Success, returning flattened analysis")
+  // Pass the full llm_analysis object — ATSDashboard reads nested fields
+  // like evaluation_result.final_score, score_breakdown.skill_score, etc.
+  const llm = raw.llm_analysis ?? raw
+  console.log("[analyze_cv] Success, returning full llm_analysis")
 
-  //  FLATTEN — frontend now receives EXACTLY what it renders
-  return NextResponse.json({
-    final_score: (llm.final_score as number) ?? 0,
-    classification: (llm.classification as string) ?? "N/A",
-    matched_skills: (llm.matched_skills as unknown[]) ?? [],
-    missing_skills: (llm.missing_skills as string[]) ?? [],
-    skill_score: (llm.skill_score as number) ?? 0,
-    experience_score: (llm.experience_score as number) ?? 0,
-    education_score: (llm.education_score as number) ?? 0
-  })
+  return NextResponse.json(llm)
 }

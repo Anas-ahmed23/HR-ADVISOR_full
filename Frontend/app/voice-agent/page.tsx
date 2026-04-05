@@ -413,6 +413,9 @@ export default function VoiceAgentPage() {
   const isListeningRef = useRef(false)
   const isAISpeakingRef = useRef(false)
   const intentionalDisconnectRef = useRef(false)
+  const isSuppressedByAIRef = useRef(false)
+  const isBargeInWindowRef = useRef(false)
+  const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     isCallActiveRef.current = isCallActive
@@ -458,6 +461,22 @@ export default function VoiceAgentPage() {
 
     httpClientRef.current = new HTTPClient({
       serverUrl: process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000",
+      onPlaybackEnded: () => {
+        if (bargeInWindowTimerRef.current) {
+          clearTimeout(bargeInWindowTimerRef.current)
+          bargeInWindowTimerRef.current = null
+        }
+        isSuppressedByAIRef.current = false
+        isBargeInWindowRef.current = false
+        setIsAISpeaking(false)
+        setLiveTranscript("")
+        // AI finished naturally — short pause for echo tail, then resume mic
+        setTimeout(() => {
+          if (isCallActiveRef.current && isMicOnRef.current && !isAISpeakingRef.current) {
+            void startSpeechRecognition()
+          }
+        }, 400)
+      },
       onAIResponse: (response: string) => {
         const normalized = response.toLowerCase()
 
@@ -477,6 +496,21 @@ export default function VoiceAgentPage() {
 
         setIsProcessing(false)
         setIsAISpeaking(true)
+        isSuppressedByAIRef.current = true
+        isBargeInWindowRef.current = false
+        stopSpeechRecognition()
+
+        // Phase 1: lockout (1500ms) — mic is off so AI voice can't echo into recognition
+        // Phase 2: watchdog — mic re-enables so the user CAN barge in
+        if (bargeInWindowTimerRef.current) clearTimeout(bargeInWindowTimerRef.current)
+        bargeInWindowTimerRef.current = setTimeout(() => {
+          bargeInWindowTimerRef.current = null
+          if (isAISpeakingRef.current && isCallActiveRef.current && isMicOnRef.current) {
+            isSuppressedByAIRef.current = false
+            isBargeInWindowRef.current = true
+            void startSpeechRecognition()
+          }
+        }, 1500)
 
         if (!systemResponseFragments.some((fragment) => normalized.includes(fragment))) {
           appendTranscriptEntry("AI", response)
@@ -522,6 +556,11 @@ export default function VoiceAgentPage() {
     return () => {
       httpClientRef.current?.disconnect()
 
+      if (bargeInWindowTimerRef.current) {
+        clearTimeout(bargeInWindowTimerRef.current)
+        bargeInWindowTimerRef.current = null
+      }
+
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop()
@@ -550,8 +589,15 @@ export default function VoiceAgentPage() {
   }
 
   const handleBargeIn = async () => {
+    // Kill the lockout timer so it doesn't restart mic on top of us
+    if (bargeInWindowTimerRef.current) {
+      clearTimeout(bargeInWindowTimerRef.current)
+      bargeInWindowTimerRef.current = null
+    }
     await httpClientRef.current?.interrupt()
     httpClientRef.current?.stopAudioPlayback()
+    isSuppressedByAIRef.current = false
+    isBargeInWindowRef.current = false
     setIsAISpeaking(false)
     setAiResponse("")
     speechStartTimeRef.current = 0
@@ -584,17 +630,21 @@ export default function VoiceAgentPage() {
       recognition.onend = () => {
         setIsListening(false)
 
-        if (isCallActiveRef.current && isMicOnRef.current) {
+        // Do NOT auto-restart during lockout — barge-in window timer or onPlaybackEnded will restart
+        if (isCallActiveRef.current && isMicOnRef.current && !isSuppressedByAIRef.current) {
+          // Shorter delay in barge-in window so watchdog stays responsive
+          const restartDelay = isBargeInWindowRef.current ? 300 : 1000
           bargeInTimeoutRef.current = setTimeout(() => {
             if (
               recognitionRef.current &&
               isCallActiveRef.current &&
               isMicOnRef.current &&
-              !isListeningRef.current
+              !isListeningRef.current &&
+              !isSuppressedByAIRef.current
             ) {
               recognitionRef.current.start()
             }
-          }, 1000)
+          }, restartDelay)
         }
       }
 
@@ -614,7 +664,7 @@ export default function VoiceAgentPage() {
           const currentTime = Date.now()
           if (!speechStartTimeRef.current) speechStartTimeRef.current = currentTime
 
-          if (currentTime - speechStartTimeRef.current > 200) {
+          if (currentTime - speechStartTimeRef.current > 500) {
             void handleBargeIn()
             return
           }
@@ -622,7 +672,7 @@ export default function VoiceAgentPage() {
           speechStartTimeRef.current = 0
         }
 
-        if (finalTranscript.trim() && isMicOnRef.current) {
+        if (finalTranscript.trim() && isMicOnRef.current && !isAISpeakingRef.current) {
           const finalMessage = finalTranscript.trim()
           setUserSpeech(finalMessage)
           setLiveTranscript("")
@@ -715,6 +765,13 @@ export default function VoiceAgentPage() {
     speechStartTimeRef.current = 0
     setLiveTranscript("")
 
+    if (bargeInWindowTimerRef.current) {
+      clearTimeout(bargeInWindowTimerRef.current)
+      bargeInWindowTimerRef.current = null
+    }
+    isSuppressedByAIRef.current = false
+    isBargeInWindowRef.current = false
+
     if (bargeInTimeoutRef.current) {
       clearTimeout(bargeInTimeoutRef.current)
       bargeInTimeoutRef.current = null
@@ -744,7 +801,10 @@ export default function VoiceAgentPage() {
 
     if (nextMicState && isCallActive) {
       setTimeout(() => {
-        void startSpeechRecognition()
+        // During AI lockout phase, skip — the lockout timer will restart mic when safe
+        if (!isSuppressedByAIRef.current) {
+          void startSpeechRecognition()
+        }
       }, 300)
       return
     }
