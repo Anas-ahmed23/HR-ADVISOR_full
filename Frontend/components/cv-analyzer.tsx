@@ -13,6 +13,7 @@ import {
   ChevronDown,
   FileSearch,
   FileText,
+  Library,
   Loader2,
   Search,
   Sparkles,
@@ -455,10 +456,18 @@ export function CVAnalyzer() {
   const [cvFile, setCvFile] = useState<File | null>(null)
   const [jdFile, setJdFile] = useState<File | null>(null)
   const [selectedJd, setSelectedJd] = useState<JDEntry | null>(null)
+  const [jdMode, setJdMode] = useState<"library" | "upload">("library")
   const [jdLoading, setJdLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const switchJdMode = (mode: "library" | "upload") => {
+    if (mode === jdMode) return
+    setJdMode(mode)
+    setJdFile(null)
+    setSelectedJd(null)
+  }
 
   const canRun = !!cvFile && !!jdFile && !loading && !jdLoading
 
@@ -572,7 +581,7 @@ export function CVAnalyzer() {
                 {jdLoading ? "Loading…" : jdFile ? "Selected" : "Pending"}
               </div>
               <div className="mt-0.5 truncate text-xs text-white/35">
-                {selectedJd ? selectedJd.title : "Select from library →"}
+                {jdFile && jdMode === "upload" ? jdFile.name : selectedJd ? selectedJd.title : jdMode === "upload" ? "Upload your JD file" : "Select from library →"}
               </div>
             </div>
           </div>
@@ -648,31 +657,77 @@ export function CVAnalyzer() {
               accentClass="text-violet-300"
             />
 
-            {/* Selected JD display */}
-            <div>
-              <div className="mb-3 text-xs uppercase tracking-[0.22em] text-white/35">Step 2 · Job description selected</div>
-              {selectedJd ? (
-                <div
-                  className="flex items-center gap-3 rounded-2xl border px-4 py-3.5 transition-all"
-                  style={{
-                    background: CATEGORY_COLORS[selectedJd.category]?.bg ?? "rgba(122,77,255,0.08)",
-                    borderColor: CATEGORY_COLORS[selectedJd.category]?.border ?? "rgba(122,77,255,0.2)",
-                  }}
+            {/* Step 2 — JD source toggle */}
+            <div className="space-y-3">
+              <div className="text-xs uppercase tracking-[0.22em] text-white/35">Step 2 · Job description</div>
+
+              {/* Mode toggle */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => switchJdMode("library")}
+                  className={cn(
+                    "flex items-center justify-center gap-2 rounded-2xl border px-3 py-2.5 text-xs font-semibold transition-all duration-150",
+                    jdMode === "library"
+                      ? "border-violet-400/40 bg-violet-400/12 text-violet-200"
+                      : "border-white/10 bg-white/[0.03] text-white/40 hover:border-white/20 hover:text-white/60"
+                  )}
                 >
-                  <CheckCircle2
-                    className="h-4 w-4 shrink-0"
-                    style={{ color: CATEGORY_COLORS[selectedJd.category]?.accent ?? "#7A4DFF" }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-white">{selectedJd.title}</div>
-                    <div className="mt-0.5 text-xs text-white/40">{selectedJd.category}</div>
+                  <Library className="h-3.5 w-3.5" />
+                  Use our library
+                </button>
+                <button
+                  onClick={() => switchJdMode("upload")}
+                  className={cn(
+                    "flex items-center justify-center gap-2 rounded-2xl border px-3 py-2.5 text-xs font-semibold transition-all duration-150",
+                    jdMode === "upload"
+                      ? "border-cyan-400/40 bg-cyan-400/12 text-cyan-200"
+                      : "border-white/10 bg-white/[0.03] text-white/40 hover:border-white/20 hover:text-white/60"
+                  )}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload my own
+                </button>
+              </div>
+
+              {/* Library mode — selected JD display */}
+              {jdMode === "library" && (
+                selectedJd ? (
+                  <div
+                    className="flex items-center gap-3 rounded-2xl border px-4 py-3.5 transition-all"
+                    style={{
+                      background: CATEGORY_COLORS[selectedJd.category]?.bg ?? "rgba(122,77,255,0.08)",
+                      borderColor: CATEGORY_COLORS[selectedJd.category]?.border ?? "rgba(122,77,255,0.2)",
+                    }}
+                  >
+                    <CheckCircle2
+                      className="h-4 w-4 shrink-0"
+                      style={{ color: CATEGORY_COLORS[selectedJd.category]?.accent ?? "#7A4DFF" }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-white">{selectedJd.title}</div>
+                      <div className="mt-0.5 text-xs text-white/40">{selectedJd.category}</div>
+                    </div>
+                    {jdLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
                   </div>
-                  {jdLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.015] px-4 py-3.5 text-center text-xs text-white/28">
-                  No job description selected · Choose one from the library →
-                </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.015] px-4 py-3.5 text-center text-xs text-white/28">
+                    No job description selected · Choose one from the library →
+                  </div>
+                )
+              )}
+
+              {/* Upload mode — JD drop zone */}
+              {jdMode === "upload" && (
+                <DropZone
+                  label="Job Description"
+                  sublabel="PDF, DOCX, or TXT"
+                  accept=".pdf,.docx,.txt"
+                  file={jdFile}
+                  onFile={setJdFile}
+                  icon={Briefcase}
+                  accentColor="#06b6d4"
+                  accentClass="text-cyan-300"
+                />
               )}
             </div>
 
@@ -771,7 +826,7 @@ export function CVAnalyzer() {
           </ProductPanel>
 
           {/* JD Library */}
-          <ProductPanel className="p-5 md:p-6">
+          <ProductPanel className={cn("p-5 md:p-6 transition-opacity duration-200", jdMode === "upload" && "pointer-events-none opacity-35")}>
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div>

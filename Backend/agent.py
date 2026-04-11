@@ -345,7 +345,8 @@ def llm_reply(user_text: str) -> str:
         )
         return (response.choices[0].message.content or "(empty response)").strip()
     except Exception as exc:
-        return f"(Request failed: {exc})"
+        print(f"[LLM] Error: {exc}")
+        return "(llm_error)"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -462,6 +463,17 @@ def generate_response(user_text: str) -> Dict[str, Any]:
 
         ai_text = llm_reply(user_text)
         print(f"[LLM] {ai_text!r}")
+
+        # If LLM returned an error sentinel, surface a clean message without TTS
+        if ai_text in ("(llm_error)", "(empty response)") or ai_text.startswith("(LLM unavailable"):
+            with barge_in_state.lock:
+                barge_in_state.is_speaking = False
+            return {
+                "text_response": "I'm having trouble connecting to my knowledge base right now. Please try again in a moment.",
+                "audio_base64": "",
+                "error": "",
+                "interrupted": False,
+            }
 
         # Barge-in before TTS
         with barge_in_state.lock:

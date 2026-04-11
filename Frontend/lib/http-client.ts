@@ -1,4 +1,21 @@
 // Voice agent HTTP client — connects to Backend/agent.py (default localhost:5000)
+
+function sanitizeError(err: unknown): string {
+  const msg = String(err).toLowerCase()
+  if (msg.includes("401") || msg.includes("access denied") || msg.includes("invalid subscription") || msg.includes("wrong api endpoint")) {
+    return "The voice service is temporarily unavailable. Please try again shortly."
+  }
+  if (msg.includes("error code") || msg.includes("'error'") || msg.includes('"error"')) {
+    return "The voice service encountered an error. Please try again."
+  }
+  if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("econnrefused")) {
+    return "Cannot reach the voice server. Make sure the backend is running."
+  }
+  if (msg.includes("timeout")) {
+    return "The voice server took too long to respond. Please try again."
+  }
+  return "Something went wrong with the voice session. Please try again."
+}
 export class HTTPClient {
   private serverUrl: string
   private onAIResponse: (response: string) => void
@@ -31,7 +48,7 @@ export class HTTPClient {
         throw new Error("Server health check failed")
       }
     } catch (error) {
-      this.onError(`Connection failed: ${error}`)
+      this.onError(sanitizeError(error))
       throw error
     }
   }
@@ -57,7 +74,7 @@ export class HTTPClient {
         this.onPlaybackEnded?.()
       }
     } catch (error) {
-      this.onError(`Request failed: ${error}`)
+      this.onError(sanitizeError(error))
     }
   }
 
@@ -80,7 +97,7 @@ export class HTTPClient {
         this.onPlaybackEnded?.()
       }
     } catch (error) {
-      this.onError(`Request failed: ${error}`)
+      this.onError(sanitizeError(error))
     }
   }
 

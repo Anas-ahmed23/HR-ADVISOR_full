@@ -686,8 +686,8 @@ export default function VoiceAgentPage() {
             bargeInTimeoutRef.current = null
           }
 
-          void httpClientRef.current?.sendTextMessage(finalMessage).catch((requestError) => {
-            setError(`Failed to send transcript: ${(requestError as Error).message}`)
+          void httpClientRef.current?.sendTextMessage(finalMessage).catch(() => {
+            setError("Failed to send your message. Please check the voice server is running.")
           })
         }
       }
@@ -704,18 +704,14 @@ export default function VoiceAgentPage() {
         if (event.error === "no-speech") return
         if (event.error === "not-allowed" || event.error === "permission-denied") setError("Microphone permission denied.")
         else if (event.error === "audio-capture") setError("No microphone was found.")
-        else setError(`Speech recognition error: ${event.error}`)
+        else setError("Speech recognition encountered an issue. Please refresh and try again.")
 
         setIsListening(false)
       }
 
       recognition.start()
-    } catch (recognitionError) {
-      setError(
-        `Speech recognition error: ${
-          recognitionError instanceof Error ? recognitionError.message : "Unknown browser error"
-        }`,
-      )
+    } catch {
+      setError("Could not start speech recognition. Please refresh and try again.")
     }
   }
 
@@ -742,12 +738,8 @@ export default function VoiceAgentPage() {
       setSessionStartedAt(Date.now())
       setClockTick(Date.now())
       await startSpeechRecognition()
-    } catch (connectionError) {
-      setError(
-        `Connection failed: ${
-          connectionError instanceof Error ? connectionError.message : "Unable to reach the voice server"
-        }`,
-      )
+    } catch {
+      setError("Unable to connect to the voice server. Make sure the backend is running and try again.")
     } finally {
       setIsConnecting(false)
     }

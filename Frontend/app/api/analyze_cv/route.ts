@@ -1,5 +1,19 @@
 import { NextResponse } from "next/server"
 
+function sanitizeBackendError(raw: string): string {
+  const lower = raw.toLowerCase()
+  if (lower.includes("401") || lower.includes("access denied") || lower.includes("invalid subscription key") || lower.includes("wrong api endpoint")) {
+    return "The analysis service is temporarily unavailable. Please try again later."
+  }
+  if (lower.includes("error code") || lower.includes("'error'") || lower.includes('"error"')) {
+    return "The analysis service returned an unexpected error. Please try again."
+  }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return "Analysis timed out. Please try again."
+  }
+  return "Analysis failed. Please try again."
+}
+
 /**
  * CV analysis backend URL. Override with env CV_ANALYZE_BACKEND_URL if needed.
  * Backend must be running: cd Backend && python backend_server.py
@@ -53,14 +67,14 @@ export async function POST(request: Request) {
   const text = await response.text()
   if (!response.ok) {
     console.error("[analyze_cv] Backend returned non-OK:", response.status, "body (first 500 chars):", text.slice(0, 500))
-    let message = "Analysis failed. Please try again."
+    let rawMessage = ""
     try {
       const err = text ? JSON.parse(text) : null
-      if (err?.error) message = err.error
+      if (err?.error) rawMessage = String(err.error)
     } catch {
-      // use default message
+      // use default
     }
-    return NextResponse.json({ error: message }, { status: 502 })
+    return NextResponse.json({ error: sanitizeBackendError(rawMessage) }, { status: 502 })
   }
 
   if (!text?.trim()) {
