@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx skills:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Read(//c/Users/User/Downloads/JDS \\(1\\)/**)",
+      "Read(//c/Users/User/Downloads/JDS \\(1\\)//**)",
+      "Bash(mkdir -p \"/c/Users/User/OneDrive/Documents/HR-ADVISOR_full/Frontend/public/jds\")",
+      "Bash(cp \"/c/Users/User/Downloads/JDS \\(1\\)/JDS/\"*.pdf \"/c/Users/User/OneDrive/Documents/HR-ADVISOR_full/Frontend/public/jds/\")",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
