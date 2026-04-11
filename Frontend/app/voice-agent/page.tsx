@@ -7,7 +7,6 @@ import {
   BarChart3,
   Brain,
   CheckCircle2,
-  Clock,
   FileText,
   MessageSquare,
   Mic,
@@ -114,10 +113,6 @@ function formatDuration(milliseconds: number) {
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
 }
 
-function formatTimestamp(timestamp: number, sessionStartedAt: number | null) {
-  if (!sessionStartedAt) return "00:00"
-  return formatDuration(timestamp - sessionStartedAt)
-}
 
 function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length
@@ -184,9 +179,7 @@ function getSummary(entries: TranscriptEntry[], durationMs: number): SummaryView
       : "Keep the candidate in review and run a deeper follow-up on missing role signals."
 
   return {
-    overview: `Captured ${candidateTurns.length} candidate responses and ${aiTurns.length} assistant prompts over ${formatDuration(
-      durationMs,
-    )}. The session produced structured transcript context for recruiter review.`,
+    overview: `Captured ${candidateTurns.length} candidate responses and ${aiTurns.length} assistant prompts. The session produced structured transcript context for recruiter review.`,
     recommendation,
     strengths,
     concerns,
@@ -879,12 +872,16 @@ export default function VoiceAgentPage() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
               <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
-                <Clock className="h-4 w-4 text-violet-300" />
+                <Shield className="h-4 w-4 text-violet-300" />
               </div>
               <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Duration</div>
-                <div className="mt-1 text-lg font-semibold text-white">{formatDuration(sessionDurationMs)}</div>
-                <div className="mt-0.5 text-xs text-white/38">{sessionStartedAt ? "In progress" : "Not started"}</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Session</div>
+                <div className="mt-1 text-lg font-semibold text-white">
+                  {isCallActive ? "Live" : hasCompletedSession ? "Done" : "Ready"}
+                </div>
+                <div className="mt-0.5 text-xs text-white/38">
+                  {isCallActive ? "In progress" : hasCompletedSession ? "Review ready" : "Not started"}
+                </div>
               </div>
             </div>
             <div className="flex gap-3 rounded-[22px] border border-white/8 bg-black/20 px-4 py-4">
@@ -1017,7 +1014,7 @@ export default function VoiceAgentPage() {
                   </div>
                   <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                     <div className="flex items-center gap-2 text-sm font-medium text-white">
-                      <Clock className="h-4 w-4 text-cyan-200" />
+                      <Shield className="h-4 w-4 text-cyan-200" />
                       Setup notes
                     </div>
                     <ul className="mt-3 space-y-2.5 text-xs text-white/52">
@@ -1215,12 +1212,9 @@ export default function VoiceAgentPage() {
                         : "border-cyan-400/16 bg-cyan-400/8"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
                       <div className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${entry.speaker === "Candidate" ? "text-violet-300" : "text-cyan-300"}`}>
                         {entry.speaker}
-                      </div>
-                      <div className="text-[10px] text-white/35">
-                        {formatTimestamp(entry.timestamp, sessionStartedAt)}
                       </div>
                     </div>
                     <div className="mt-2 text-sm leading-6 text-white/70">{entry.text}</div>

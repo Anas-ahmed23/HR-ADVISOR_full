@@ -371,11 +371,7 @@ function MatchCard({ m, idx }: { m: MatchedSkill; idx: number }) {
               {mtype}
             </span>
           )}
-          {conf !== null && (
-            <span style={{ fontSize: "0.58rem", fontWeight: 800, color: scoreColor(conf) }}>
-              {conf}% conf.
-            </span>
-          )}
+          {/* confidence score hidden from UI */}
         </div>
       </div>
 
@@ -581,6 +577,202 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
 
   const [activeTab, setActiveTab] = useState<"matches" | "missing" | "advice" | "insights">("matches")
 
+  const handleExport = () => {
+    const evalR = raw?.evaluation_result
+    const ats   = raw?.ats_summary
+    const jd    = raw?.job_description_analysis
+    const sb    = raw?.score_breakdown
+    const adv   = raw?.candidate_advice
+    const ins   = raw?.insights
+
+    const rawScore = evalR?.final_score ?? raw?.final_score ?? 0
+    const fp = Math.max(0, Math.min(100, Math.round(safeN(rawScore) <= 1 ? safeN(rawScore) * 100 : safeN(rawScore))))
+
+    const lines: string[] = [
+      "═══════════════════════════════════════════════════",
+      "        HR ADVISOR — CV ANALYSIS REPORT",
+      "═══════════════════════════════════════════════════",
+      "",
+      `Generated: ${new Date().toLocaleString()}`,
+      "",
+      "───────────────────────────────────────────────────",
+      "  OVERALL RESULT",
+      "───────────────────────────────────────────────────",
+      `  Match Score:      ${fp}%`,
+      `  Classification:  ${evalR?.classification ?? raw?.classification ?? "N/A"}`,
+      `  Readiness:       ${evalR?.application_readiness ?? "N/A"}`,
+      "",
+    ]
+
+    if (evalR?.headline) lines.push(`  ${evalR.headline}`, "")
+    const verdict = evalR?.short_verdict ?? ats?.short_verdict
+    if (verdict) lines.push(`  ${verdict}`, "")
+
+    if (jd?.job_title || jd?.domain || jd?.seniority) {
+      lines.push(
+        "───────────────────────────────────────────────────",
+        "  JOB DESCRIPTION",
+        "───────────────────────────────────────────────────",
+      )
+      if (jd?.job_title)  lines.push(`  Title:     ${jd.job_title}`)
+      if (jd?.domain)     lines.push(`  Domain:    ${jd.domain}`)
+      if (jd?.seniority)  lines.push(`  Seniority: ${jd.seniority}`)
+      if (jd?.job_summary) lines.push(``, `  ${jd.job_summary}`)
+      lines.push("")
+    }
+
+    if (sb) {
+      const fmt = (v: unknown) => `${Math.max(0, Math.min(100, Math.round(safeN(v) <= 1 ? safeN(v) * 100 : safeN(v))))}%`
+      lines.push(
+        "───────────────────────────────────────────────────",
+        "  SCORE BREAKDOWN",
+        "───────────────────────────────────────────────────",
+        `  Technical Skills:           ${fmt(sb.skill_score)}`,
+        `  Experience Fit:             ${fmt(sb.experience_score)}`,
+        `  Education:                  ${fmt(sb.education_score)}`,
+        `  Soft Skills:                ${fmt(sb.soft_skill_score)}`,
+        `  Responsibility Alignment:   ${fmt(sb.responsibility_alignment_score)}`,
+        `  Domain Fit:                 ${fmt(sb.domain_fit_score)}`,
+        `  Impact & Achievements:      ${fmt(sb.impact_score)}`,
+        `  Resume Quality:             ${fmt(sb.resume_quality_score)}`,
+        "",
+      )
+    }
+
+    const matched = raw?.matched_skills ?? []
+    if (matched.length > 0) {
+      lines.push(
+        "───────────────────────────────────────────────────",
+        `  MATCHED SKILLS (${matched.length})`,
+        "───────────────────────────────────────────────────",
+      )
+      matched.forEach((m, i) => {
+        lines.push(`  ${i + 1}. JD: ${m.jd_skill}  →  CV: ${m.cv_skill}${m.match_type ? `  [${m.match_type}]` : ""}`)
+        if (m.evidence) lines.push(`     Evidence: "${m.evidence}"`)
+      })
+      lines.push("")
+    }
+
+    const missing = raw?.missing_skills ?? []
+    const grouped = raw?.missing_skills_grouped ?? []
+    if (grouped.length > 0 || missing.length > 0) {
+      lines.push(
+        "───────────────────────────────────────────────────",
+        "  MISSING SKILLS",
+        "───────────────────────────────────────────────────",
+      )
+      if (grouped.length > 0) {
+        grouped.forEach(g => {
+          lines.push(`  [${g.group}]`)
+          g.skills.forEach(s => lines.push(`    · ${s}`))
+        })
+      } else {
+        missing.forEach(s => lines.push(`  · ${s}`))
+      }
+      lines.push("")
+    }
+
+    if (ats?.top_strengths?.length) {
+      lines.push(
+        "───────────────────────────────────────────────────",
+        "  TOP STRENGTHS",
+        "───────────────────────────────────────────────────",
+      )
+      ats.top_strengths.forEach(s => lines.push(`  ✓ ${s}`))
+      lines.push("")
+    }
+
+    if (ats?.top_gaps?.length) {
+      lines.push(
+        "───────────────────────────────────────────────────",
+        "  TOP GAPS",
+        "───────────────────────────────────────────────────",
+      )
+      ats.top_gaps.forEach(s => lines.push(`  ✗ ${s}`))
+      lines.push("")
+    }
+
+    if (adv?.overall_advice) {
+      lines.push(
+        "───────────────────────────────────────────────────",
+        "  CANDIDATE ADVICE",
+        "───────────────────────────────────────────────────",
+        `  ${adv.overall_advice}`,
+        "",
+      )
+    }
+
+    const priorities = adv?.priority_improvements ?? []
+    if (priorities.length > 0) {
+      lines.push("  Priority Improvements:")
+      priorities.forEach(p => {
+        lines.push(`  ${p.priority}. ${p.action}`)
+        if (p.reason) lines.push(`     → ${p.reason}`)
+      })
+      lines.push("")
+    }
+
+    const cvImprov = adv?.cv_improvements ?? []
+    if (cvImprov.length > 0) {
+      lines.push("  CV Improvements:")
+      cvImprov.forEach(t => lines.push(`  · ${t}`))
+      lines.push("")
+    }
+
+    const learnRecs = adv?.learning_recommendations ?? []
+    if (learnRecs.length > 0) {
+      lines.push("  Learning Recommendations:")
+      learnRecs.forEach(t => lines.push(`  · ${t}`))
+      lines.push("")
+    }
+
+    const interviewTips = adv?.interview_tips ?? []
+    if (interviewTips.length > 0) {
+      lines.push("  Interview Tips:")
+      interviewTips.forEach(t => lines.push(`  · ${t}`))
+      lines.push("")
+    }
+
+    if (ins?.strengths?.length || ins?.gaps?.length || ins?.recommendations?.length) {
+      lines.push(
+        "───────────────────────────────────────────────────",
+        "  INSIGHTS",
+        "───────────────────────────────────────────────────",
+      )
+      if (ins?.strengths?.length) {
+        lines.push("  Strengths:")
+        ins.strengths.forEach(s => lines.push(`  · ${s}`))
+        lines.push("")
+      }
+      if (ins?.gaps?.length) {
+        lines.push("  Gaps:")
+        ins.gaps.forEach(s => lines.push(`  · ${s}`))
+        lines.push("")
+      }
+      if (ins?.recommendations?.length) {
+        lines.push("  Recommendations:")
+        ins.recommendations.forEach(s => lines.push(`  · ${s}`))
+        lines.push("")
+      }
+    }
+
+    lines.push("═══════════════════════════════════════════════════")
+    lines.push("              Generated by HR Advisor")
+    lines.push("═══════════════════════════════════════════════════")
+
+    const content = lines.join("\n")
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    const jobTitle = jd?.job_title ?? raw?.metadata?.job_title ?? "role"
+    a.download = `hr-advisor-analysis-${jobTitle.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   /* ── normalise data (new rich format + legacy fallback) ──── */
   const evalR   = raw?.evaluation_result
   const ats     = raw?.ats_summary
@@ -631,11 +823,51 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
   const domain    = jd?.domain     ?? ""
   const seniority = jd?.seniority  ?? ""
 
+  /* ── smart fallback advice when LLM advice is sparse ── */
+  const hasSomeAdvice = !!(adv?.overall_advice || priorities.length || cvImprov.length || learnRecs.length || interviewTips.length)
+
+  const fallbackOverallAdvice = hasSomeAdvice ? "" :
+    fp >= 75
+      ? "You have strong alignment with this role. Focus on reinforcing your matched skills in your CV with specific metrics and outcomes, and prepare evidence-backed examples for each matched competency."
+      : fp >= 50
+      ? "You show moderate alignment with this role. Prioritise closing the skill gaps listed in the Missing Skills tab, and update your CV to evidence competencies that are currently underrepresented."
+      : "Significant preparation is needed before applying for this role. Work systematically through the missing skills, pursue relevant certifications, and rebuild your CV to align closely with the JD requirements."
+
+  const fallbackPriorities: PriorityItem[] = hasSomeAdvice ? [] : [
+    ...(gapCount > 0 ? [{
+      priority: 1,
+      action: `Address the ${gapCount} missing skill${gapCount !== 1 ? "s" : ""} identified in the analysis`,
+      reason: "These are required by the JD but not evidenced in the CV — closing them directly increases match score.",
+    }] : []),
+    ...(expP < 60 ? [{
+      priority: 2,
+      action: "Strengthen the experience section of your CV with quantified impact",
+      reason: "Experience alignment is below threshold. Add metrics (e.g. team size, delivery outcomes, performance gains) to your existing roles.",
+    }] : []),
+    ...(resumeP < 60 ? [{
+      priority: 3,
+      action: "Improve CV structure and presentation quality",
+      reason: "Resume quality is lower than optimal. Use clear section headings, consistent formatting, and concise bullet points.",
+    }] : []),
+    ...(fp < 50 ? [{
+      priority: hasSomeAdvice ? 1 : 4,
+      action: "Consider targeting a closer role match or investing in targeted upskilling",
+      reason: "The current fit score suggests this role may require significant preparation. A structured learning plan is recommended.",
+    }] : []),
+  ]
+
+  const effectiveOverallAdvice  = adv?.overall_advice  || fallbackOverallAdvice
+  const effectivePriorities     = priorities.length     ? priorities    : fallbackPriorities
+  const effectiveCvImprov       = cvImprov
+  const effectiveLearnRecs      = learnRecs
+  const effectiveInterviewTips  = interviewTips
+
+  const adviceCount = (effectiveOverallAdvice ? 1 : 0) + effectivePriorities.length + effectiveCvImprov.length + effectiveLearnRecs.length + effectiveInterviewTips.length
   const TABS = [
-    { id: "matches",  label: "Matched Skills",   count: matched.length,  color: "#34d399" },
-    { id: "missing",  label: "Missing Skills",   count: gapCount,        color: "#f87171" },
-    { id: "advice",   label: "Candidate Advice", count: priorities.length, color: "#7A4DFF" },
-    { id: "insights", label: "Insights",         count: strengths.length + insGaps.length, color: "#06b6d4" },
+    { id: "matches",  label: "Matched Skills",   count: matched.length,              color: "#34d399" },
+    { id: "missing",  label: "Missing Skills",   count: gapCount,                    color: "#f87171" },
+    { id: "advice",   label: "Candidate Advice", count: adviceCount,                 color: "#7A4DFF" },
+    { id: "insights", label: "Insights",         count: strengths.length + insGaps.length + recs.length, color: "#06b6d4" },
   ] as const
 
   /* default verdict copy */
@@ -684,6 +916,7 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
             </button>
             <button
               className="ats-icon-btn"
+              onClick={handleExport}
               style={{
                 display: "flex", alignItems: "center", gap: 7,
                 padding: "9px 20px", borderRadius: 10,
@@ -851,7 +1084,7 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
           className="ats-up"
           style={{ ...CARD, padding: "20px 22px", animationDelay: ".15s" }}
         >
-          <SectionLabel icon={BarChart3} mb={16}>Score Breakdown · 8 Dimensions</SectionLabel>
+          <SectionLabel icon={BarChart3} mb={16}>Score Breakdown</SectionLabel>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 28px" }}>
             <ScoreBar label="Technical Skills"          value={skillP}   color="#7A4DFF" icon={Code2}         />
             <ScoreBar label="Experience Fit"            value={expP}     color="#06b6d4" icon={Briefcase}     />
@@ -960,55 +1193,55 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
               {/* ADVICE */}
               {activeTab === "advice" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-                  {adv?.overall_advice && (
+                  {effectiveOverallAdvice && (
                     <div>
                       <SectionLabel icon={MessageSquare} color="#7A4DFF">Overall Advice</SectionLabel>
                       <p style={{
                         fontSize: "0.8rem", color: "rgba(255,255,255,0.58)",
                         lineHeight: 1.8, margin: 0,
                       }}>
-                        {adv.overall_advice}
+                        {effectiveOverallAdvice}
                       </p>
                     </div>
                   )}
 
-                  {priorities.length > 0 && (
+                  {effectivePriorities.length > 0 && (
                     <div>
                       <SectionLabel icon={Target} color="#f87171">Priority Improvements</SectionLabel>
                       <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                        {priorities.map((item, i) => <PriorityCard key={i} item={item} idx={i} />)}
+                        {effectivePriorities.map((item, i) => <PriorityCard key={i} item={item} idx={i} />)}
                       </div>
                     </div>
                   )}
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 22 }}>
-                    {cvImprov.length > 0 && (
+                    {effectiveCvImprov.length > 0 && (
                       <div>
                         <SectionLabel icon={FileText} color="#06b6d4">CV Improvements</SectionLabel>
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {cvImprov.map((t, i) => <ListItem key={i} text={t} color="#06b6d4" />)}
+                          {effectiveCvImprov.map((t, i) => <ListItem key={i} text={t} color="#06b6d4" />)}
                         </div>
                       </div>
                     )}
-                    {learnRecs.length > 0 && (
+                    {effectiveLearnRecs.length > 0 && (
                       <div>
                         <SectionLabel icon={BookOpen} color="#a78bfa">Learning Recommendations</SectionLabel>
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {learnRecs.map((t, i) => <ListItem key={i} text={t} color="#a78bfa" />)}
+                          {effectiveLearnRecs.map((t, i) => <ListItem key={i} text={t} color="#a78bfa" />)}
                         </div>
                       </div>
                     )}
-                    {interviewTips.length > 0 && (
+                    {effectiveInterviewTips.length > 0 && (
                       <div>
                         <SectionLabel icon={Lightbulb} color="#fbbf24">Interview Tips</SectionLabel>
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {interviewTips.map((t, i) => <ListItem key={i} text={t} color="#fbbf24" />)}
+                          {effectiveInterviewTips.map((t, i) => <ListItem key={i} text={t} color="#fbbf24" />)}
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {!adv?.overall_advice && priorities.length === 0 && cvImprov.length === 0 && learnRecs.length === 0 && (
+                  {!effectiveOverallAdvice && effectivePriorities.length === 0 && effectiveCvImprov.length === 0 && effectiveLearnRecs.length === 0 && (
                     <EmptyState icon={MessageSquare} text="No detailed advice generated yet." />
                   )}
                 </div>
