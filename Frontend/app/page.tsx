@@ -81,7 +81,7 @@ const bentoFeatures = [
     tag: "Setup",
     tagStyle: "border-cyan-400/25 bg-cyan-400/10 text-cyan-200",
     glowClass: "from-cyan-500/15 to-transparent",
-    span: "lg:col-span-1",
+    span: "lg:col-span-2",
   },
   {
     title: "End-to-end hiring clarity",
@@ -92,7 +92,7 @@ const bentoFeatures = [
     tag: "Platform",
     tagStyle: "border-violet-400/25 bg-violet-400/10 text-violet-200",
     glowClass: "from-violet-400/14 via-cyan-400/8 to-transparent",
-    span: "lg:col-span-2",
+    span: "lg:col-span-3",
   },
 ]
 

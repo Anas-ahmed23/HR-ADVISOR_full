@@ -1135,7 +1135,7 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
               )}
             </div>
 
-            {/* Right: Strengths + Gaps + Recommendation */}
+            {/* Right: Strengths + Gaps */}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {topStr.length > 0 && (
                 <div style={{
@@ -1165,24 +1165,63 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
                 </div>
               )}
 
-              <div style={{
-                ...CARD, padding: 18, flex: 1,
-                borderLeft: "3px solid #7A4DFF", borderRadius: "0 16px 16px 0",
-              }}>
-                <SectionLabel icon={Sparkles} color="#9B6FFF">Recommendation</SectionLabel>
-                <p style={{
-                  fontSize: "0.76rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.82, margin: 0,
+              {(topStr.length === 0 && topGaps.length === 0) && (
+                <div style={{
+                  ...CARD, padding: 18,
+                  fontSize: "0.72rem", color: "rgba(255,255,255,0.28)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  minHeight: 80,
                 }}>
-                  {fp >= 75
-                    ? "Strong alignment detected. This candidate is well-positioned for the role. Proceed to interview and use the matched skills as focal talking points."
-                    : fp >= 50
-                    ? "Moderate alignment. The candidate meets core criteria but has notable gaps. Consider conditional progression with a targeted upskilling plan."
-                    : "Significant gaps exist across key dimensions. Extensive upskilling is recommended before this candidate would be competitive for this role."}
-                </p>
-              </div>
+                  Strengths &amp; gap signals appear here once the API returns ATS summary data.
+                </div>
+              )}
             </div>
           </div>
         )}
+
+        {/* ━━━ RECOMMENDATION (always visible) ━━━ */}
+        <div
+          className="ats-up"
+          style={{
+            ...CARD, padding: "20px 22px", animationDelay: ".20s",
+            borderLeft: "3px solid #7A4DFF", borderRadius: "0 16px 16px 0",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <SectionLabel icon={Sparkles} color="#9B6FFF" mb={10}>Hiring Recommendation</SectionLabel>
+              <p style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.58)", lineHeight: 1.85, margin: 0 }}>
+                {fp >= 75
+                  ? "Strong alignment detected. This candidate is well-positioned for the role. Proceed to interview and use the matched skills as focal talking points."
+                  : fp >= 50
+                  ? "Moderate alignment. The candidate meets core criteria but has notable gaps. Consider conditional progression with a targeted upskilling plan."
+                  : "Significant gaps exist across key dimensions. Extensive upskilling is recommended before this candidate would be competitive for this role."}
+              </p>
+            </div>
+            <div style={{
+              display: "flex", flexDirection: "column", gap: 8, minWidth: 180, alignItems: "flex-start",
+            }}>
+              <div style={{
+                padding: "6px 14px", borderRadius: 9,
+                background: fp >= 75 ? "rgba(52,211,153,0.12)" : fp >= 50 ? "rgba(251,191,36,0.12)" : "rgba(248,113,113,0.12)",
+                border: `1px solid ${fp >= 75 ? "rgba(52,211,153,0.3)" : fp >= 50 ? "rgba(251,191,36,0.3)" : "rgba(248,113,113,0.3)"}`,
+                color: fp >= 75 ? "#34d399" : fp >= 50 ? "#fbbf24" : "#f87171",
+                fontSize: "0.72rem", fontWeight: 700,
+              }}>
+                {fp >= 75 ? "Proceed to interview" : fp >= 50 ? "Conditional progression" : "Not recommended"}
+              </div>
+              {fp >= 75 && (
+                <div style={{
+                  padding: "6px 14px", borderRadius: 9,
+                  background: "rgba(122,77,255,0.12)", border: "1px solid rgba(122,77,255,0.25)",
+                  color: "#a78bfa", fontSize: "0.72rem", fontWeight: 700,
+                }}>
+                  Voice screen recommended
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
         {/* ━━━ ANALYSIS TABS (full-width) ━━━ */}
         <div

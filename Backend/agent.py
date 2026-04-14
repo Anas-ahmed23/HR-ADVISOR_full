@@ -361,7 +361,7 @@ def transcribe_audio(file_path: str) -> str:
         )
     url = _build_transcribe_url()
     log(f"[STT] POST {url}")
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"api-key": api_key}
     data    = {
         "model":    AZURE_TRANSCRIBE_DEPLOYMENT,
         "language": AZURE_TRANSCRIBE_LANGUAGE,
@@ -412,8 +412,8 @@ def synthesize_speech(text: str) -> bytes:
     url = _build_tts_url()
     log(f"[TTS] POST {url}")
     headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type":  "application/json",
+        "api-key":      api_key,
+        "Content-Type": "application/json",
     }
     payload = {
         "model":  AZURE_TTS_DEPLOYMENT,
@@ -524,14 +524,15 @@ def health_check():
         AZURE_TTS_API_KEY or AZURE_OPENAI_API_KEY,
         AZURE_TTS_ENDPOINT,
     ])
-    return jsonify({
-        "status":         "healthy" if configured else "missing_config",
+    payload = {
+        "status":           "healthy" if configured else "missing_config",
         "azure_configured": configured,
-        "llm_loaded":     _llm_client is not None,
-        "stt_available":  bool(AZURE_TRANSCRIBE_API_KEY or AZURE_OPENAI_API_KEY),
-        "tts_available":  bool(AZURE_TTS_API_KEY or AZURE_OPENAI_API_KEY),
-        "context_loaded": bool(_context_pack_cache),
-    })
+        "llm_loaded":       _llm_client is not None,
+        "stt_available":    bool(AZURE_TRANSCRIBE_API_KEY or AZURE_OPENAI_API_KEY),
+        "tts_available":    bool(AZURE_TTS_API_KEY or AZURE_OPENAI_API_KEY),
+        "context_loaded":   bool(_context_pack_cache),
+    }
+    return jsonify(payload), (200 if configured else 503)
 
 
 @app.route("/status", methods=["GET"])
