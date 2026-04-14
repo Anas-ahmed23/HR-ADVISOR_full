@@ -54,6 +54,19 @@ const GLOBAL_CSS = `
 }
 .ats-exporting { animation: ats-export-pulse 1.1s ease-in-out infinite; pointer-events: none; }
 
+/* Job recommendation cards grid */
+.ats-rec-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .ats-rec-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  .ats-rec-grid { grid-template-columns: 1fr; }
+}
+
 /* Responsive layout helpers */
 .ats-role-grid {
   display: grid;
@@ -126,6 +139,14 @@ interface JDAnalysis {
   seniority?: string
 }
 
+interface JobRecommendation {
+  job_title: string
+  fit_score: number
+  reason: string
+  cv_match_skills: string[]
+  seniority?: string
+}
+
 interface LLMAnalysis {
   /* ── new structure ── */
   metadata?: { job_title?: string; created_at?: string }
@@ -159,6 +180,8 @@ interface LLMAnalysis {
     interview_tips?: string[]
   }
   insights?: { strengths?: string[]; gaps?: string[]; recommendations?: string[] }
+
+  job_recommendations?: JobRecommendation[]
 
   /* ── legacy (old hr_analyzer) ── */
   final_score?: number
@@ -626,6 +649,90 @@ function Pill({ label, color }: { label: string; color: string }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   JOB RECOMMENDATION CARD
+───────────────────────────────────────────────────────────── */
+function JobRecommendationCard({ rec, idx }: { rec: JobRecommendation; idx: number }) {
+  const sc = rec.fit_score
+  const col = sc >= 75 ? "#34d399" : sc >= 50 ? "#fbbf24" : "#f87171"
+  const bg  = sc >= 75 ? "rgba(52,211,153,0.08)" : sc >= 50 ? "rgba(251,191,36,0.08)" : "rgba(248,113,113,0.08)"
+  const bdr = sc >= 75 ? "rgba(52,211,153,0.2)"  : sc >= 50 ? "rgba(251,191,36,0.2)"  : "rgba(248,113,113,0.2)"
+
+  return (
+    <div
+      className="ats-card ats-up"
+      style={{
+        ...CARD,
+        padding: "16px 18px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 11,
+        animationDelay: `${0.08 + idx * 0.06}s`,
+        borderTop: `2px solid ${col}40`,
+      }}
+    >
+      {/* header: title + score badge */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {rec.seniority && (
+            <p style={{
+              fontSize: "0.5rem", fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.2em", color: "rgba(255,255,255,0.3)",
+              margin: "0 0 4px",
+            }}>
+              {rec.seniority}
+            </p>
+          )}
+          <p style={{
+            fontSize: "0.88rem", fontWeight: 800, color: "white",
+            margin: 0, lineHeight: 1.3, wordBreak: "break-word",
+          }}>
+            {rec.job_title}
+          </p>
+        </div>
+        {/* fit score ring-badge */}
+        <div style={{
+          flexShrink: 0,
+          width: 44, height: 44,
+          borderRadius: "50%",
+          background: bg,
+          border: `1.5px solid ${bdr}`,
+          display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center",
+        }}>
+          <span style={{ fontSize: "0.72rem", fontWeight: 900, color: col, lineHeight: 1 }}>{sc}%</span>
+          <span style={{ fontSize: "0.38rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "rgba(255,255,255,0.3)" }}>fit</span>
+        </div>
+      </div>
+
+      {/* reason */}
+      {rec.reason && (
+        <p style={{
+          fontSize: "0.7rem", color: "rgba(255,255,255,0.48)",
+          lineHeight: 1.72, margin: 0,
+        }}>
+          {rec.reason}
+        </p>
+      )}
+
+      {/* skill chips */}
+      {rec.cv_match_skills.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+          {rec.cv_match_skills.map((s, i) => (
+            <span key={i} style={{
+              fontSize: "0.58rem", fontWeight: 600, padding: "3px 8px", borderRadius: 6,
+              background: "rgba(122,77,255,0.1)", border: "1px solid rgba(122,77,255,0.22)",
+              color: "#c4b5fd",
+            }}>
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────
    MAIN DASHBOARD
 ───────────────────────────────────────────────────────────── */
 export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
@@ -779,6 +886,8 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
   const sb      = raw?.score_breakdown
   const adv     = raw?.candidate_advice
   const ins     = raw?.insights
+
+  const jobRecs     = raw?.job_recommendations       ?? []
 
   const matched     = raw?.matched_skills          ?? []
   const missing     = raw?.missing_skills           ?? []
@@ -1026,6 +1135,26 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
             </div>
           </div>
         </div>
+
+        {/* ━━━ RECOMMENDED ROLES ━━━ */}
+        {jobRecs.length > 0 && (
+          <div className="ats-up" style={{ animationDelay: ".10s" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Sparkles style={{ width: 13, height: 13, color: "#9B6FFF" }} />
+              <span style={{
+                fontSize: "0.56rem", fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: "0.22em", color: "rgba(255,255,255,0.28)",
+              }}>
+                Recommended Roles Based on This CV
+              </span>
+            </div>
+            <div className="ats-rec-grid">
+              {jobRecs.map((rec, i) => (
+                <JobRecommendationCard key={i} rec={rec} idx={i} />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ━━━ STATUS ROW ━━━ */}
         <div

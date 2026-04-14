@@ -594,6 +594,24 @@ PHASE 7 — RAG / VOICE AGENT STORAGE
 ==================================================
 Your JSON will be used later by a retrieval-augmented generation (RAG) system and a voice assistant.
 
+==================================================
+PHASE 8 — ALTERNATIVE JOB RECOMMENDATIONS (MANDATORY)
+==================================================
+Based EXCLUSIVELY on evidence found in the candidate's CV, generate exactly 2 or 3 real alternative job role recommendations.
+
+RULES (STRICT):
+- Recommend real job titles that exist in the industry and job market.
+- Base ALL recommendations strictly on skills, experience, domain, and seniority evidenced in the CV.
+- Do NOT recommend the same role as the JD being evaluated.
+- Do NOT hallucinate or invent skills, tools, or experience not present in the CV.
+- Each recommendation MUST have an accurate fit_score (integer 0-100) derived from the CV evidence.
+- The fit_score should reflect how well the candidate's CV actually supports that alternative role.
+- Each cv_match_skills list MUST contain 3 to 5 actual skills present in the CV that directly support the recommended role.
+- Each reason must be 1 to 2 clear, concrete sentences explaining the match — no generic filler.
+- Order recommendations by fit_score descending.
+- Seniority must reflect the level implied by the CV (Junior, Mid-Level, Senior, Lead, Manager).
+- Think like an experienced recruiter giving honest, actionable career path advice.
+
 Therefore:
 - store information in clean structured sections
 - include explicit key-value facts
@@ -870,6 +888,16 @@ Return ONLY valid JSON in this exact structure:
       "content": "",
       "keywords": []
     }
+  ],
+
+  "job_recommendations": [
+    {
+      "job_title": "",
+      "fit_score": 0,
+      "reason": "",
+      "cv_match_skills": [],
+      "seniority": ""
+    }
   ]
 }
 
@@ -897,6 +925,12 @@ FIELD REQUIREMENTS
 - voice_agent_facts.answer must be direct, concise, and natural for spoken responses.
 - retrieval_chunks.content must be concise, factual, and retrieval-friendly.
 - retrieval_chunks.keywords must contain useful search terms such as role name, core skills, missing skills, classification, and JD requirements.
+- job_recommendations must contain 2 to 3 objects, ordered by fit_score descending.
+- job_recommendations[].job_title must be a real, specific job title (not generic like "IT role").
+- job_recommendations[].fit_score must be an integer between 0 and 100, reflecting actual CV evidence.
+- job_recommendations[].reason must be 1 to 2 concrete sentences — no filler or generic statements.
+- job_recommendations[].cv_match_skills must contain 3 to 5 actual skills from the CV supporting this role.
+- job_recommendations[].seniority must match the experience level evidenced in the CV.
 
 ==================================================
 STYLE REQUIREMENTS
@@ -968,6 +1002,7 @@ def normalize_rag_json(data):
     data.setdefault("retrieval_chunks", [])
     data.setdefault("missing_skills_grouped", [])
     data.setdefault("job_description_analysis", {})
+    data.setdefault("job_recommendations", [])
 
     metadata = data["metadata"]
     evaluation = data["evaluation_result"]
@@ -1503,6 +1538,32 @@ def normalize_rag_json(data):
             ))
         }
     ]
+
+    # ── Normalize job_recommendations ──────────────────────────
+    raw_recs = data.get("job_recommendations", [])
+    cleaned_recs = []
+    for rec in raw_recs:
+        if not isinstance(rec, dict):
+            continue
+        title = str(rec.get("job_title", "")).strip()
+        if not title:
+            continue
+        raw_score = rec.get("fit_score", 0)
+        try:
+            score = int(float(raw_score))
+            score = max(0, min(100, score))
+        except (TypeError, ValueError):
+            score = 0
+        cleaned_recs.append({
+            "job_title": title,
+            "fit_score": score,
+            "reason": str(rec.get("reason", "")).strip(),
+            "cv_match_skills": [str(s).strip() for s in rec.get("cv_match_skills", []) if s],
+            "seniority": str(rec.get("seniority", "")).strip(),
+        })
+    # sort by fit_score descending, keep max 3
+    cleaned_recs.sort(key=lambda x: x["fit_score"], reverse=True)
+    data["job_recommendations"] = cleaned_recs[:3]
 
     return data
 
