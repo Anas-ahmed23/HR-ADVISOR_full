@@ -21,10 +21,10 @@ from flair.data import Sentence
 # Azure OpenAI Configuration (from environment variables)
 # ============================================================
 
-AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
+AZURE_OPENAI_API_KEY = os.getenv("HR_AZURE_OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_OPENAI_ENDPOINT = os.getenv("HR_AZURE_OPENAI_ENDPOINT") or os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_DEPLOYMENT = os.getenv("HR_AZURE_OPENAI_DEPLOYMENT") or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1")
+AZURE_OPENAI_API_VERSION = os.getenv("HR_AZURE_OPENAI_API_VERSION") or os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
 
 if not AZURE_OPENAI_API_KEY:
     raise RuntimeError("Missing AZURE_OPENAI_API_KEY environment variable")

@@ -19,11 +19,14 @@ import {
   Target,
 } from "lucide-react"
 
+import Link from "next/link"
+import { Lock } from "lucide-react"
 import { ProductPanel, ProductShell } from "@/components/product-shell"
 import { WaveformVisualizer } from "@/components/WaveformVisualizer"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { HTTPClient } from "@/lib/http-client"
+import { useAnalysis } from "@/context/analysis-context"
 
 type BrowserSpeechRecognition = {
   continuous: boolean
@@ -378,6 +381,7 @@ function InsightCard({
 }
 
 export default function VoiceAgentPage() {
+  const { isComplete } = useAnalysis()
   const [userSpeech, setUserSpeech] = useState("")
   const [aiResponse, setAiResponse] = useState("")
   const [isConnected, setIsConnected] = useState(false)
@@ -828,6 +832,66 @@ export default function VoiceAgentPage() {
         ? "Candidate speech is being transcribed live."
         : aiResponse || "Session activity will appear here."
 
+  /* ── ACCESS GUARD ── */
+  if (!isComplete) {
+    return (
+      <ProductShell currentPath="/voice-agent">
+        <div className="flex min-h-[70vh] items-center justify-center">
+          <div className="relative mx-auto w-full max-w-lg">
+            {/* Ambient glow */}
+            <div className="pointer-events-none absolute -inset-12 rounded-full bg-violet-500/10 blur-[80px]" />
+
+            <div className="relative flex flex-col items-center gap-8 rounded-[28px] border border-white/10 bg-white/[0.03] px-8 py-14 text-center backdrop-blur-sm">
+              {/* Lock icon */}
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06]">
+                <Lock className="h-7 w-7 text-white/40" />
+              </div>
+
+              {/* Copy */}
+              <div className="space-y-3">
+                <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">
+                  Voice Agent Locked
+                </h2>
+                <p className="max-w-sm text-sm leading-7 text-white/50">
+                  The AI Voice Agent requires a completed CV analysis to operate.
+                  Run an analysis first to load candidate context and unlock this workspace.
+                </p>
+              </div>
+
+              {/* Steps */}
+              <div className="w-full space-y-2.5">
+                {[
+                  { n: "01", label: "Upload candidate CV" },
+                  { n: "02", label: "Select a job description" },
+                  { n: "03", label: "Run analysis — Voice Agent unlocks" },
+                ].map(({ n, label }) => (
+                  <div
+                    key={n}
+                    className="flex items-center gap-4 rounded-2xl border border-white/8 bg-white/[0.025] px-5 py-3.5 text-left"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-violet-400/30 bg-violet-400/12 text-[10px] font-bold text-violet-300">
+                      {n}
+                    </span>
+                    <span className="text-sm text-white/65">{label}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* CTA */}
+              <Button
+                asChild
+                size="lg"
+                className="w-full rounded-full bg-[#7A4DFF] text-white shadow-[0_16px_40px_rgba(122,77,255,0.28)] hover:bg-[#6a3ff2]"
+              >
+                <Link href="/analyzer">Go to CV Analyzer</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </ProductShell>
+    )
+  }
+
   return (
     <ProductShell currentPath="/voice-agent" mainClassName="space-y-8 md:space-y-10">
 
@@ -1113,7 +1177,7 @@ export default function VoiceAgentPage() {
 
             {/* COMPLETED */}
             {hasCompletedSession && !isCallActive && (
-              <div className="space-y-4">
+              <div className="animate-fade-in-up space-y-4">
                 <div className="rounded-[24px] border border-emerald-400/18 bg-emerald-400/10 p-4">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/12 text-emerald-200">
@@ -1278,7 +1342,7 @@ export default function VoiceAgentPage() {
 
             {/* SUMMARY TAB */}
             <TabsContent value="summary">
-              <div className="space-y-3">
+              <div key={hasCompletedSession ? "completed" : "empty"} className="animate-result-in space-y-3">
                 <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                   <div className="flex items-center gap-2 text-sm font-medium text-white">
                     <FileText className="h-4 w-4 text-violet-200" />

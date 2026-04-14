@@ -3,11 +3,11 @@
 import { useState, useRef, useEffect, useMemo } from "react"
 import { ATSDashboard } from "@/components/ats-dashboard"
 import { ProductPanel } from "@/components/product-shell"
+import { useAnalysis } from "@/context/analysis-context"
 import { Button } from "@/components/ui/button"
 import {
   AlertCircle,
   ArrowRight,
-  Brain,
   Briefcase,
   CheckCircle2,
   ChevronDown,
@@ -17,9 +17,7 @@ import {
   Loader2,
   Search,
   Sparkles,
-  Target,
   Upload,
-  Zap,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -450,6 +448,80 @@ function JDPicker({
 }
 
 /* ─────────────────────────────────────────
+   ANALYZING VIEW (multi-stage loading)
+───────────────────────────────────────── */
+const ANALYSIS_STAGES = [
+  "Parsing CV and extracting structure…",
+  "Identifying hard and soft skills…",
+  "Matching against job requirements…",
+  "Scoring fit across 8 dimensions…",
+  "Generating candidate advice…",
+  "Finalising report…",
+]
+
+function AnalyzingView({ cvName, jdName }: { cvName: string; jdName: string }) {
+  const [stageIdx, setStageIdx] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setStageIdx(i => Math.min(i + 1, ANALYSIS_STAGES.length - 1))
+    }, 7000)
+    return () => clearInterval(id)
+  }, [])
+
+  const progress = Math.round(((stageIdx + 1) / ANALYSIS_STAGES.length) * 100)
+
+  return (
+    <div className="flex min-h-[62vh] flex-col items-center justify-center gap-8 py-16">
+      {/* Orbital ring */}
+      <div className="relative flex h-24 w-24 items-center justify-center">
+        <div className="absolute inset-0 rounded-full border-2 border-violet-400/12" />
+        <div
+          className="animate-orbit absolute inset-0 rounded-full border-2 border-transparent"
+          style={{ borderTopColor: "#7A4DFF", borderRightColor: "rgba(122,77,255,0.35)" }}
+        />
+        <Sparkles className="animate-pulse-icon h-7 w-7 text-violet-300" />
+      </div>
+
+      {/* Stage message */}
+      <div className="space-y-2 text-center">
+        <div key={stageIdx} className="animate-stage-in text-lg font-semibold tracking-[-0.02em] text-white">
+          {ANALYSIS_STAGES[stageIdx]}
+        </div>
+        <div className="text-sm text-white/40">This may take 30–60 seconds</div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="w-full max-w-xs">
+        <div className="h-1 overflow-hidden rounded-full bg-white/8">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-violet-500 to-violet-300 transition-all duration-[1400ms] ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="mt-2 flex justify-between text-[10px] text-white/28">
+          <span>Stage {stageIdx + 1} of {ANALYSIS_STAGES.length}</span>
+          <span>{progress}%</span>
+        </div>
+      </div>
+
+      {/* File context chips */}
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <div className="flex items-center gap-1.5 rounded-full border border-violet-400/20 bg-violet-400/8 px-3 py-1.5 text-xs text-violet-200/80">
+          <FileText className="h-3 w-3 shrink-0" />
+          <span className="max-w-[160px] truncate">{cvName}</span>
+        </div>
+        <div className="h-1 w-1 rounded-full bg-white/20" />
+        <div className="flex items-center gap-1.5 rounded-full border border-cyan-400/20 bg-cyan-400/8 px-3 py-1.5 text-xs text-cyan-200/80">
+          <Briefcase className="h-3 w-3 shrink-0" />
+          <span className="max-w-[160px] truncate">{jdName}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────
    MAIN COMPONENT
 ───────────────────────────────────────── */
 export function CVAnalyzer() {
@@ -458,9 +530,24 @@ export function CVAnalyzer() {
   const [selectedJd, setSelectedJd] = useState<JDEntry | null>(null)
   const [jdMode, setJdMode] = useState<"library" | "upload">("library")
   const [jdLoading, setJdLoading] = useState(false)
+  const { result, setResult, clearResult, isComplete } = useAnalysis()
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [wasRestored, setWasRestored] = useState(false)
+
+  /* Track if result was pre-loaded from localStorage (not this session's run) */
+  useEffect(() => {
+    if (isComplete && !loading) setWasRestored(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /* Scroll to top when fresh analysis result arrives */
+  useEffect(() => {
+    if (result && !wasRestored) {
+      window.scrollTo({ top: 0, behavior: "smooth" })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result])
 
   const switchJdMode = (mode: "library" | "upload") => {
     if (mode === jdMode) return
@@ -493,7 +580,8 @@ export function CVAnalyzer() {
     if (!cvFile || !jdFile) return
     setLoading(true)
     setError(null)
-    setResult(null)
+    setWasRestored(false)
+    clearResult()
     try {
       const form = new FormData()
       form.append("cv_file", cvFile)
@@ -503,7 +591,8 @@ export function CVAnalyzer() {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error ?? `Server error ${res.status}`)
       }
-      setResult(await res.json())
+      const data = await res.json()
+      setResult(data)
     } catch (err: any) {
       setError(err.message ?? "Analysis failed. Please try again.")
     } finally {
@@ -512,7 +601,7 @@ export function CVAnalyzer() {
   }
 
   const handleReset = () => {
-    setResult(null)
+    clearResult()
     setError(null)
     setCvFile(null)
     setJdFile(null)
@@ -521,7 +610,35 @@ export function CVAnalyzer() {
 
   /* ── RESULTS VIEW ── */
   if (result) {
-    return <ATSDashboard llm_analysis={result} onReset={handleReset} />
+    return (
+      <div className="animate-result-in">
+        {wasRestored && (
+          <div className="mb-4 flex items-center justify-between gap-4 rounded-2xl border border-violet-400/18 bg-violet-400/8 px-5 py-3">
+            <div className="flex items-center gap-2.5 text-sm text-violet-200/80">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-violet-300" />
+              Previous analysis restored from your last session.
+            </div>
+            <button
+              onClick={handleReset}
+              className="shrink-0 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-1.5 text-xs font-medium text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white/80"
+            >
+              Clear &amp; start fresh
+            </button>
+          </div>
+        )}
+        <ATSDashboard llm_analysis={result} onReset={handleReset} />
+      </div>
+    )
+  }
+
+  /* ── ANALYZING VIEW ── */
+  if (loading) {
+    return (
+      <AnalyzingView
+        cvName={cvFile?.name ?? "CV"}
+        jdName={selectedJd?.title ?? jdFile?.name ?? "Job Description"}
+      />
+    )
   }
 
   /* ── UPLOAD VIEW ── */
@@ -532,13 +649,13 @@ export function CVAnalyzer() {
       <div className="space-y-4">
         <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-200">
           <Sparkles className="h-3.5 w-3.5" />
-          Evidence-based AI analysis
+          AI-powered fit analysis
         </div>
         <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
           CV Analyzer
         </h1>
         <p className="max-w-2xl text-base leading-8 text-white/60">
-          Upload a candidate CV, select a job description, and get structured fit analysis, skill extraction, and evidence-backed scoring in seconds.
+          Upload a candidate CV, choose a job description, and receive a detailed fit score, skill gap breakdown, and hiring recommendations — ready in seconds.
         </p>
       </div>
 
@@ -775,55 +892,8 @@ export function CVAnalyzer() {
           </div>
         </ProductPanel>
 
-        {/* RIGHT: HOW IT WORKS + JD PICKER */}
+        {/* RIGHT: JD PICKER */}
         <div className="space-y-4">
-
-          {/* How it works */}
-          <ProductPanel className="p-5 md:p-6">
-            <div className="space-y-4">
-              <div>
-                <div className="text-xs uppercase tracking-[0.22em] text-white/35">Quick guide</div>
-                <div className="mt-1.5 text-lg font-semibold tracking-[-0.02em] text-white">How it works</div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { icon: FileText,   step: "01", label: "Upload CV",       detail: "Drop your candidate's resume in PDF, DOCX, or TXT format.", accent: "#7A4DFF" },
-                  { icon: Briefcase,  step: "02", label: "Pick a JD",       detail: "Browse our library of 130+ curated job descriptions and select one.", accent: "#06b6d4" },
-                  { icon: Sparkles,   step: "03", label: "Get insights",    detail: "Receive a full fit score, skill gaps, and recruiter recommendations.", accent: "#34d399" },
-                ].map(({ icon: Icon, step, label, detail, accent }) => (
-                  <div key={step} className="flex flex-col gap-2 rounded-2xl border border-white/8 bg-black/20 p-3.5">
-                    <div
-                      className="flex h-8 w-8 items-center justify-center rounded-xl border text-[10px] font-bold"
-                      style={{ background: `${accent}12`, borderColor: `${accent}25`, color: accent }}
-                    >
-                      {step}
-                    </div>
-                    <div className="text-xs font-semibold text-white">{label}</div>
-                    <div className="text-[11px] leading-[1.6] text-white/40">{detail}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* What you get */}
-              <div className="grid gap-2 pt-1">
-                {[
-                  { icon: Target, label: "Fit score",              detail: "Weighted match across 8 dimensions.",                   accent: "text-violet-300", bg: "bg-violet-400/12 border-violet-400/20" },
-                  { icon: Brain,  label: "Skill gap analysis",     detail: "Missing & matched skills with evidence.",               accent: "text-cyan-300",   bg: "bg-cyan-400/12 border-cyan-400/20"   },
-                  { icon: Zap,    label: "Recruiter advice",       detail: "Priority improvements and next steps.",                 accent: "text-emerald-300", bg: "bg-emerald-400/12 border-emerald-400/20" },
-                ].map(({ icon: Icon, label, detail, accent, bg }) => (
-                  <div key={label} className="flex items-center gap-3 rounded-2xl border border-white/8 bg-black/20 px-4 py-2.5">
-                    <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border", bg)}>
-                      <Icon className={cn("h-3.5 w-3.5", accent)} />
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium text-white">{label}</div>
-                      <div className="text-[11px] text-white/40">{detail}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </ProductPanel>
 
           {/* JD Library */}
           <ProductPanel className={cn("p-5 md:p-6 transition-opacity duration-200", jdMode === "upload" && "pointer-events-none opacity-35")}>

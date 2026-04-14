@@ -1,12 +1,13 @@
 "use client"
 
 import { useState } from "react"
+import jsPDF from "jspdf"
 import {
   CheckCircle2, XCircle, AlertTriangle, TrendingUp, RefreshCw,
   Download, Briefcase, GraduationCap, Code2, Target, Star,
-  BookOpen, Lightbulb, Award, Zap, Users, BarChart3, Brain,
+  BookOpen, Lightbulb, Zap, Users, BarChart3, Brain,
   ChevronRight, ChevronDown, ChevronUp, FileText, AlertCircle,
-  MessageSquare, ClipboardList, Shield, Layers,
+  MessageSquare, ClipboardList, Layers, Sparkles,
 } from "lucide-react"
 
 /* ─────────────────────────────────────────────────────────────
@@ -24,11 +25,61 @@ const GLOBAL_CSS = `
 .ats-card:hover {
   border-color: rgba(255,255,255,0.12) !important;
   background:   rgba(255,255,255,0.045) !important;
-  transform:    translateY(-1px);
+  transform:    translateY(-2px);
+  transition: border-color .2s ease, background .2s ease, transform .2s cubic-bezier(.4,0,.2,1) !important;
 }
-.ats-tab-btn:hover  { color: rgba(255,255,255,.75) !important; }
+.ats-tab-btn:hover  { color: rgba(255,255,255,.85) !important; }
 .ats-icon-btn:hover { background: rgba(255,255,255,.07) !important; }
 .ats-chip:hover     { opacity: .82; }
+
+/* Tab content fade */
+@keyframes ats-fade-tab {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ats-tab-content {
+  animation: ats-fade-tab .22s cubic-bezier(.4,0,.2,1) both;
+}
+
+/* Button active press */
+.ats-btn-primary { transition: transform .12s cubic-bezier(.4,0,.2,1), opacity .12s ease; }
+.ats-btn-primary:active { transform: scale(0.97); opacity: .88; }
+.ats-btn-secondary { transition: transform .12s cubic-bezier(.4,0,.2,1), opacity .12s ease; }
+.ats-btn-secondary:active { transform: scale(0.97); opacity: .85; }
+
+/* Export shimmer */
+@keyframes ats-export-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.ats-exporting { animation: ats-export-pulse 1.1s ease-in-out infinite; pointer-events: none; }
+
+/* Responsive layout helpers */
+.ats-role-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.ats-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: 10px;
+}
+.ats-hero-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  align-items: center;
+}
+@media (max-width: 640px) {
+  .ats-role-grid   { grid-template-columns: 1fr; }
+  .ats-status-grid { grid-template-columns: 1fr; }
+  .ats-hero-inner  { flex-direction: column; align-items: flex-start; gap: 18px; }
+  .ats-score-grid  { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 768px) {
+  .ats-role-grid { grid-template-columns: 1fr; }
+}
 `
 
 /* ─────────────────────────────────────────────────────────────
@@ -471,28 +522,32 @@ const PRIORITY_COLORS = ["#f87171", "#fbbf24", "#7A4DFF", "#06b6d4", "#34d399"]
 function PriorityCard({ item, idx }: { item: PriorityItem; idx: number }) {
   const c = PRIORITY_COLORS[idx % PRIORITY_COLORS.length]
   return (
-    <div className="ats-card" style={{ ...CARD, padding: "14px 16px", display: "flex", gap: 12 }}>
-      <div style={{
-        width: 30, height: 30, borderRadius: 9, flexShrink: 0,
-        background: `${c}16`, border: `1px solid ${c}30`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>
-        <span style={{ fontSize: "0.72rem", fontWeight: 900, color: c }}>{item.priority}</span>
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{
-          fontSize: "0.8rem", fontWeight: 700, color: "white",
-          margin: "0 0 5px", lineHeight: 1.4,
+    <div
+      className="ats-card"
+      style={{
+        ...CARD,
+        padding: "13px 16px",
+        borderLeft: `3px solid ${c}`,
+        borderRadius: "0 12px 12px 0",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <span style={{
+          fontSize: "0.52rem", fontWeight: 800, padding: "2px 7px",
+          borderRadius: 99, color: c, background: `${c}18`, border: `1px solid ${c}30`,
         }}>
+          {item.priority}
+        </span>
+        <p style={{ fontSize: "0.8rem", fontWeight: 700, color: "white", margin: 0, lineHeight: 1.4 }}>
           {item.action}
         </p>
-        <p style={{
-          fontSize: "0.7rem", color: "rgba(255,255,255,0.42)",
-          margin: 0, lineHeight: 1.55,
-        }}>
-          {item.reason}
-        </p>
       </div>
+      <p style={{
+        fontSize: "0.7rem", color: "rgba(255,255,255,0.45)",
+        margin: "0 0 0 4px", lineHeight: 1.6,
+      }}>
+        {item.reason}
+      </p>
     </div>
   )
 }
@@ -576,201 +631,145 @@ function Pill({ label, color }: { label: string; color: string }) {
 export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
 
   const [activeTab, setActiveTab] = useState<"matches" | "missing" | "advice" | "insights">("matches")
+  const [isExporting, setIsExporting] = useState(false)
 
   const handleExport = () => {
-    const evalR = raw?.evaluation_result
-    const ats   = raw?.ats_summary
-    const jd    = raw?.job_description_analysis
-    const sb    = raw?.score_breakdown
-    const adv   = raw?.candidate_advice
-    const ins   = raw?.insights
+    setIsExporting(true)
+    setTimeout(() => {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
+    const pw  = doc.internal.pageSize.getWidth()
+    const ph  = doc.internal.pageSize.getHeight()
+    const lm  = 18
+    const tw  = pw - lm * 2
+    let y = 20
 
-    const rawScore = evalR?.final_score ?? raw?.final_score ?? 0
-    const fp = Math.max(0, Math.min(100, Math.round(safeN(rawScore) <= 1 ? safeN(rawScore) * 100 : safeN(rawScore))))
+    const newPage = () => { doc.addPage(); y = 20 }
+    const guard   = (h: number) => { if (y + h > ph - 16) newPage() }
 
-    const lines: string[] = [
-      "═══════════════════════════════════════════════════",
-      "        HR ADVISOR — CV ANALYSIS REPORT",
-      "═══════════════════════════════════════════════════",
-      "",
-      `Generated: ${new Date().toLocaleString()}`,
-      "",
-      "───────────────────────────────────────────────────",
-      "  OVERALL RESULT",
-      "───────────────────────────────────────────────────",
-      `  Match Score:      ${fp}%`,
-      `  Classification:  ${evalR?.classification ?? raw?.classification ?? "N/A"}`,
-      `  Readiness:       ${evalR?.application_readiness ?? "N/A"}`,
-      "",
+    const h1 = () => { doc.setFontSize(14); doc.setFont("helvetica", "bold");   doc.setTextColor(18, 12, 42) }
+    const h2 = () => { doc.setFontSize(11); doc.setFont("helvetica", "bold");   doc.setTextColor(40, 30, 80) }
+    const h3 = () => { doc.setFontSize(9);  doc.setFont("helvetica", "bold");   doc.setTextColor(60, 50, 100) }
+    const bd = () => { doc.setFontSize(9);  doc.setFont("helvetica", "normal"); doc.setTextColor(70, 65, 100) }
+    const sm = () => { doc.setFontSize(8);  doc.setFont("helvetica", "normal"); doc.setTextColor(120, 115, 150) }
+
+    // ── Cover block ──
+    doc.setFillColor(18, 12, 42)
+    doc.rect(0, 0, pw, 52, "F")
+    doc.setFontSize(7); doc.setFont("helvetica", "bold"); doc.setTextColor(150, 120, 255)
+    doc.text("HR ADVISOR  ·  CV ANALYSIS REPORT", lm, 13)
+    doc.setFontSize(20); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255)
+    doc.text(evalR?.headline || jobTitle || "Candidate Analysis", lm, 28, { maxWidth: tw })
+    doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(180, 160, 255)
+    doc.text(
+      `Generated ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}`,
+      lm, 42,
+    )
+    y = 62
+
+    // ── Score box ──
+    doc.setFillColor(243, 240, 255)
+    doc.setDrawColor(122, 77, 255)
+    doc.roundedRect(lm, y, tw, 30, 3, 3, "FD")
+    doc.setFontSize(26); doc.setFont("helvetica", "bold"); doc.setTextColor(122, 77, 255)
+    doc.text(`${fp}%`, lm + 8, y + 18)
+    doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(40, 30, 80)
+    doc.text("Overall Match Score", lm + 34, y + 9)
+    doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(80, 70, 120)
+    doc.text(classification, lm + 34, y + 16)
+    if (readiness) doc.text(rdCfg.label, lm + 34, y + 23)
+    y += 38
+
+    // verdict
+    bd()
+    const vLines = doc.splitTextToSize(verdict || defaultVerdict, tw)
+    guard(vLines.length * 5 + 8)
+    doc.text(vLines, lm, y); y += vLines.length * 5 + 10
+
+    // ── Score Breakdown ──
+    guard(16); h2(); doc.text("Score Breakdown", lm, y); y += 8
+    const scoreRows: [string, number][] = [
+      ["Technical Skills", skillP], ["Experience Fit", expP],
+      ["Education", eduP],          ["Soft Skills", softP],
+      ["Responsibility", respP],    ["Domain Fit", domainP],
+      ["Impact", impactP],          ["Resume Quality", resumeP],
     ]
+    const colW = tw / 2 - 4
+    scoreRows.forEach(([lbl, val], i) => {
+      const col = i % 2
+      const xOff = lm + col * (colW + 8)
+      if (col === 0 && i > 0) y += 13
+      guard(13)
+      sm(); doc.text(lbl, xOff, y); doc.text(`${val}%`, xOff + colW, y, { align: "right" })
+      doc.setFillColor(210, 205, 230); doc.roundedRect(xOff, y + 2, colW, 3, 1, 1, "F")
+      const bc: [number, number, number] = val >= 75 ? [52, 211, 153] : val >= 50 ? [251, 191, 36] : [248, 113, 113]
+      doc.setFillColor(...bc); doc.roundedRect(xOff, y + 2, Math.max(2, colW * val / 100), 3, 1, 1, "F")
+    })
+    y += 18
 
-    if (evalR?.headline) lines.push(`  ${evalR.headline}`, "")
-    const verdict = evalR?.short_verdict ?? ats?.short_verdict
-    if (verdict) lines.push(`  ${verdict}`, "")
-
-    if (jd?.job_title || jd?.domain || jd?.seniority) {
-      lines.push(
-        "───────────────────────────────────────────────────",
-        "  JOB DESCRIPTION",
-        "───────────────────────────────────────────────────",
-      )
-      if (jd?.job_title)  lines.push(`  Title:     ${jd.job_title}`)
-      if (jd?.domain)     lines.push(`  Domain:    ${jd.domain}`)
-      if (jd?.seniority)  lines.push(`  Seniority: ${jd.seniority}`)
-      if (jd?.job_summary) lines.push(``, `  ${jd.job_summary}`)
-      lines.push("")
-    }
-
-    if (sb) {
-      const fmt = (v: unknown) => `${Math.max(0, Math.min(100, Math.round(safeN(v) <= 1 ? safeN(v) * 100 : safeN(v))))}%`
-      lines.push(
-        "───────────────────────────────────────────────────",
-        "  SCORE BREAKDOWN",
-        "───────────────────────────────────────────────────",
-        `  Technical Skills:           ${fmt(sb.skill_score)}`,
-        `  Experience Fit:             ${fmt(sb.experience_score)}`,
-        `  Education:                  ${fmt(sb.education_score)}`,
-        `  Soft Skills:                ${fmt(sb.soft_skill_score)}`,
-        `  Responsibility Alignment:   ${fmt(sb.responsibility_alignment_score)}`,
-        `  Domain Fit:                 ${fmt(sb.domain_fit_score)}`,
-        `  Impact & Achievements:      ${fmt(sb.impact_score)}`,
-        `  Resume Quality:             ${fmt(sb.resume_quality_score)}`,
-        "",
-      )
-    }
-
-    const matched = raw?.matched_skills ?? []
+    // ── Matched Skills ──
     if (matched.length > 0) {
-      lines.push(
-        "───────────────────────────────────────────────────",
-        `  MATCHED SKILLS (${matched.length})`,
-        "───────────────────────────────────────────────────",
-      )
-      matched.forEach((m, i) => {
-        lines.push(`  ${i + 1}. JD: ${m.jd_skill}  →  CV: ${m.cv_skill}${m.match_type ? `  [${m.match_type}]` : ""}`)
-        if (m.evidence) lines.push(`     Evidence: "${m.evidence}"`)
+      guard(16); h2(); doc.text(`Matched Skills (${matched.length})`, lm, y); y += 8
+      matched.forEach(m => {
+        guard(18)
+        h3(); doc.text(m.jd_skill, lm, y)
+        bd(); doc.text(`-> ${m.cv_skill}`, lm + 4, y + 5)
+        if (m.evidence) {
+          sm()
+          const eL = doc.splitTextToSize(`"${m.evidence}"`, tw - 6)
+          guard(eL.length * 4.5 + 4)
+          doc.text(eL, lm + 4, y + 11); y += 11 + eL.length * 4.5 + 3
+        } else { y += 13 }
       })
-      lines.push("")
+      y += 4
     }
 
-    const missing = raw?.missing_skills ?? []
-    const grouped = raw?.missing_skills_grouped ?? []
-    if (grouped.length > 0 || missing.length > 0) {
-      lines.push(
-        "───────────────────────────────────────────────────",
-        "  MISSING SKILLS",
-        "───────────────────────────────────────────────────",
-      )
+    // ── Missing Skills ──
+    if (gapCount > 0) {
+      guard(16); h2(); doc.text(`Missing Skills (${gapCount})`, lm, y); y += 8
       if (grouped.length > 0) {
         grouped.forEach(g => {
-          lines.push(`  [${g.group}]`)
-          g.skills.forEach(s => lines.push(`    · ${s}`))
+          guard(12); h3(); doc.text(g.group, lm, y); y += 5
+          bd()
+          const sL = doc.splitTextToSize(g.skills.join("  ·  "), tw - 4)
+          guard(sL.length * 5); doc.text(sL, lm + 4, y); y += sL.length * 5 + 4
         })
       } else {
-        missing.forEach(s => lines.push(`  · ${s}`))
+        bd()
+        const mL = doc.splitTextToSize(missing.join("  ·  "), tw)
+        guard(mL.length * 5); doc.text(mL, lm, y); y += mL.length * 5 + 4
       }
-      lines.push("")
+      y += 4
     }
 
-    if (ats?.top_strengths?.length) {
-      lines.push(
-        "───────────────────────────────────────────────────",
-        "  TOP STRENGTHS",
-        "───────────────────────────────────────────────────",
-      )
-      ats.top_strengths.forEach(s => lines.push(`  ✓ ${s}`))
-      lines.push("")
-    }
-
-    if (ats?.top_gaps?.length) {
-      lines.push(
-        "───────────────────────────────────────────────────",
-        "  TOP GAPS",
-        "───────────────────────────────────────────────────",
-      )
-      ats.top_gaps.forEach(s => lines.push(`  ✗ ${s}`))
-      lines.push("")
-    }
-
-    if (adv?.overall_advice) {
-      lines.push(
-        "───────────────────────────────────────────────────",
-        "  CANDIDATE ADVICE",
-        "───────────────────────────────────────────────────",
-        `  ${adv.overall_advice}`,
-        "",
-      )
-    }
-
-    const priorities = adv?.priority_improvements ?? []
-    if (priorities.length > 0) {
-      lines.push("  Priority Improvements:")
-      priorities.forEach(p => {
-        lines.push(`  ${p.priority}. ${p.action}`)
-        if (p.reason) lines.push(`     → ${p.reason}`)
+    // ── Advice ──
+    if (effectiveOverallAdvice || effectivePriorities.length > 0) {
+      guard(16); h2(); doc.text("Candidate Advice", lm, y); y += 8
+      if (effectiveOverallAdvice) {
+        bd()
+        const aL = doc.splitTextToSize(effectiveOverallAdvice, tw)
+        guard(aL.length * 5); doc.text(aL, lm, y); y += aL.length * 5 + 6
+      }
+      effectivePriorities.forEach(p => {
+        guard(18); h3(); doc.text(`${p.priority}. ${p.action}`, lm, y); y += 5
+        sm()
+        const rL = doc.splitTextToSize(p.reason, tw - 4)
+        guard(rL.length * 4.5); doc.text(rL, lm + 4, y); y += rL.length * 4.5 + 4
       })
-      lines.push("")
     }
 
-    const cvImprov = adv?.cv_improvements ?? []
-    if (cvImprov.length > 0) {
-      lines.push("  CV Improvements:")
-      cvImprov.forEach(t => lines.push(`  · ${t}`))
-      lines.push("")
+    // ── Footer on every page ──
+    const totalPages = (doc.internal as any).getNumberOfPages()
+    for (let pg = 1; pg <= totalPages; pg++) {
+      doc.setPage(pg)
+      doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(160, 155, 185)
+      doc.text("Generated by HR Advisor", lm, ph - 9)
+      doc.text(`Page ${pg} of ${totalPages}`, pw - lm, ph - 9, { align: "right" })
     }
 
-    const learnRecs = adv?.learning_recommendations ?? []
-    if (learnRecs.length > 0) {
-      lines.push("  Learning Recommendations:")
-      learnRecs.forEach(t => lines.push(`  · ${t}`))
-      lines.push("")
-    }
-
-    const interviewTips = adv?.interview_tips ?? []
-    if (interviewTips.length > 0) {
-      lines.push("  Interview Tips:")
-      interviewTips.forEach(t => lines.push(`  · ${t}`))
-      lines.push("")
-    }
-
-    if (ins?.strengths?.length || ins?.gaps?.length || ins?.recommendations?.length) {
-      lines.push(
-        "───────────────────────────────────────────────────",
-        "  INSIGHTS",
-        "───────────────────────────────────────────────────",
-      )
-      if (ins?.strengths?.length) {
-        lines.push("  Strengths:")
-        ins.strengths.forEach(s => lines.push(`  · ${s}`))
-        lines.push("")
-      }
-      if (ins?.gaps?.length) {
-        lines.push("  Gaps:")
-        ins.gaps.forEach(s => lines.push(`  · ${s}`))
-        lines.push("")
-      }
-      if (ins?.recommendations?.length) {
-        lines.push("  Recommendations:")
-        ins.recommendations.forEach(s => lines.push(`  · ${s}`))
-        lines.push("")
-      }
-    }
-
-    lines.push("═══════════════════════════════════════════════════")
-    lines.push("              Generated by HR Advisor")
-    lines.push("═══════════════════════════════════════════════════")
-
-    const content = lines.join("\n")
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    const jobTitle = jd?.job_title ?? raw?.metadata?.job_title ?? "role"
-    a.download = `hr-advisor-analysis-${jobTitle.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}.txt`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    const slug = (jobTitle || "analysis").toLowerCase().replace(/\s+/g, "-")
+    doc.save(`hr-advisor-${slug}-${Date.now()}.pdf`)
+    setIsExporting(false)
+    }, 0)
   }
 
   /* ── normalise data (new rich format + legacy fallback) ──── */
@@ -881,7 +880,7 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
     <>
       <style>{GLOBAL_CSS}</style>
 
-      <div style={{ padding: "26px 30px", display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ padding: "clamp(16px,3vw,30px)", display: "flex", flexDirection: "column", gap: 18 }}>
 
         {/* ━━━ HEADER ━━━ */}
         <div className="ats-up" style={{
@@ -896,11 +895,12 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
               Analysis Results
             </h2>
             <p style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)", margin: 0 }}>
-              Flair NER · Keyword Matching · Azure OpenAI GPT-4.1 · RAG-Ready Output
+              Flair NER · Keyword Matching · Azure OpenAI GPT-4.1
             </p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button
+              className="ats-btn-primary"
               onClick={onReset}
               style={{
                 display: "flex", alignItems: "center", gap: 7,
@@ -908,25 +908,26 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
                 background: "linear-gradient(135deg,#6d38f5,#9B6FFF)",
                 color: "white", fontSize: "0.78rem", fontWeight: 700,
                 boxShadow: "0 0 24px rgba(122,77,255,0.38), 0 2px 8px rgba(0,0,0,0.25)",
-                transition: "box-shadow .2s, opacity .2s",
               }}
             >
               <RefreshCw style={{ width: 13, height: 13 }} />
               New Analysis
             </button>
             <button
-              className="ats-icon-btn"
+              className={`ats-btn-secondary ats-icon-btn${isExporting ? " ats-exporting" : ""}`}
               onClick={handleExport}
+              disabled={isExporting}
               style={{
                 display: "flex", alignItems: "center", gap: 7,
                 padding: "9px 20px", borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.1)", cursor: "pointer",
+                border: "1px solid rgba(255,255,255,0.1)",
+                cursor: isExporting ? "not-allowed" : "pointer",
                 background: "rgba(255,255,255,0.035)", color: "rgba(255,255,255,0.6)",
-                fontSize: "0.78rem", fontWeight: 600, transition: "background .15s",
+                fontSize: "0.78rem", fontWeight: 600,
               }}
             >
               <Download style={{ width: 13, height: 13 }} />
-              Export
+              {isExporting ? "Exporting…" : "Export PDF"}
             </button>
           </div>
         </div>
@@ -948,10 +949,7 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
             background: "radial-gradient(circle, rgba(122,77,255,0.09) 0%, transparent 70%)",
           }} />
 
-          <div style={{
-            position: "relative", zIndex: 1,
-            display: "flex", flexWrap: "wrap", gap: 28, alignItems: "center",
-          }}>
+          <div className="ats-hero-inner" style={{ position: "relative", zIndex: 1 }}>
             {/* big ring */}
             <Ring value={fp} size={158} stroke={12} color={mc} large />
 
@@ -1029,35 +1027,10 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
           </div>
         </div>
 
-        {/* ━━━ JD STRIP ━━━ */}
-        {(jobTitle || domain || seniority || jd?.job_summary) && (
-          <div
-            className="ats-up"
-            style={{ ...CARD, padding: "13px 20px", animationDelay: ".09s" }}
-          >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-              <Briefcase style={{ width: 13, height: 13, color: "#7A4DFF", flexShrink: 0 }} />
-              {jobTitle && (
-                <span style={{ fontSize: "0.9rem", fontWeight: 800, color: "white" }}>{jobTitle}</span>
-              )}
-              {domain    && <Pill label={domain}    color="#c4b5fd" />}
-              {seniority && <Pill label={seniority} color="#67e8f9" />}
-              {jd?.job_summary && (
-                <span style={{
-                  fontSize: "0.72rem", color: "rgba(255,255,255,0.35)",
-                  lineHeight: 1.5, flex: 1, minWidth: 180,
-                }}>
-                  {jd.job_summary}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* ━━━ STATUS ROW ━━━ */}
         <div
-          className="ats-up"
-          style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, animationDelay: ".12s" }}
+          className="ats-up ats-status-grid"
+          style={{ animationDelay: ".12s" }}
         >
           <StatusChip
             icon={gapCount > 0 ? XCircle : CheckCircle2}
@@ -1085,7 +1058,7 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
           style={{ ...CARD, padding: "20px 22px", animationDelay: ".15s" }}
         >
           <SectionLabel icon={BarChart3} mb={16}>Score Breakdown</SectionLabel>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 28px" }}>
+          <div className="ats-score-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 28px" }}>
             <ScoreBar label="Technical Skills"          value={skillP}   color="#7A4DFF" icon={Code2}         />
             <ScoreBar label="Experience Fit"            value={expP}     color="#06b6d4" icon={Briefcase}     />
             <ScoreBar label="Education"                 value={eduP}     color="#a78bfa" icon={GraduationCap} />
@@ -1097,271 +1070,328 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
           </div>
         </div>
 
-        {/* ━━━ MAIN GRID ━━━ */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 292px", gap: 16, alignItems: "start" }}>
-
-          {/* LEFT — tabbed panel */}
+        {/* ━━━ ROLE OVERVIEW + RECOMMENDATION ━━━ */}
+        {(jobTitle || domain || seniority || jd?.job_summary ||
+          (jd?.requirements?.length ?? 0) > 0 || (jd?.tools_and_technologies?.length ?? 0) > 0 ||
+          topStr.length > 0 || topGaps.length > 0) && (
           <div
-            className="ats-up"
-            style={{ ...CARD, padding: 0, overflow: "hidden", animationDelay: ".19s" }}
+            className="ats-up ats-role-grid"
+            style={{ animationDelay: ".19s" }}
           >
-            {/* tab bar */}
-            <div style={{
-              display: "flex", borderBottom: "1px solid rgba(255,255,255,0.07)",
-              overflowX: "auto",
-            }}>
-              {TABS.map(t => {
-                const active = activeTab === t.id
-                return (
-                  <button
-                    key={t.id}
-                    className="ats-tab-btn"
-                    onClick={() => setActiveTab(t.id as typeof activeTab)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 7,
-                      padding: "14px 20px", whiteSpace: "nowrap",
-                      background: "none", border: "none",
-                      borderBottom: active ? "2px solid #7A4DFF" : "2px solid transparent",
-                      color: active ? "white" : "rgba(255,255,255,0.32)",
-                      fontSize: "0.78rem", fontWeight: 700,
-                      cursor: "pointer", transition: "color .15s",
-                    }}
-                  >
-                    {t.label}
-                    <span style={{
-                      fontSize: "0.58rem", fontWeight: 700, padding: "2px 7px",
-                      borderRadius: 99, color: t.color, background: `${t.color}18`,
-                    }}>
-                      {t.count}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
+            {/* Left: Role Overview */}
+            <div style={{ ...CARD, padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+              <SectionLabel icon={Briefcase} color="#06b6d4">Role Overview</SectionLabel>
 
-            {/* ── tab content ── */}
-            <div style={{ padding: 20 }}>
-
-              {/* MATCHES */}
-              {activeTab === "matches" && (
-                matched.length > 0
-                  ? (
-                    <div style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))",
-                      gap: 10,
-                    }}>
-                      {matched.map((m, i) => <MatchCard key={i} m={m} idx={i} />)}
-                    </div>
-                  )
-                  : <EmptyState icon={FileText} text="No verified skill matches found. Consider tailoring the CV more closely to the job description." />
+              {(jobTitle || domain || seniority) && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                  {jobTitle && (
+                    <span style={{ fontSize: "0.95rem", fontWeight: 800, color: "white" }}>{jobTitle}</span>
+                  )}
+                  {domain    && <Pill label={domain}    color="#c4b5fd" />}
+                  {seniority && <Pill label={seniority} color="#67e8f9" />}
+                </div>
               )}
 
-              {/* MISSING */}
-              {activeTab === "missing" && (
-                grouped.length > 0
-                  ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      <p style={{
-                        fontSize: "0.65rem", color: "rgba(255,255,255,0.28)",
-                        margin: "0 0 4px", lineHeight: 1.6,
+              {jd?.job_summary && (
+                <p style={{
+                  fontSize: "0.76rem", color: "rgba(255,255,255,0.48)",
+                  lineHeight: 1.78, margin: 0,
+                }}>
+                  {jd.job_summary}
+                </p>
+              )}
+
+              {(jd?.requirements?.length ?? 0) > 0 && (
+                <div>
+                  <SectionLabel icon={ClipboardList} color="#06b6d4" mb={10}>Key Requirements</SectionLabel>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {jd!.requirements!.map((r, i) => (
+                      <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                        <ChevronRight style={{ width: 10, height: 10, color: "#06b6d4", flexShrink: 0, marginTop: 4 }} />
+                        <span style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.55)", lineHeight: 1.55 }}>
+                          {r}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(jd?.tools_and_technologies?.length ?? 0) > 0 && (
+                <div>
+                  <SectionLabel icon={Layers} color="#a78bfa" mb={10}>Required Technologies</SectionLabel>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {jd!.tools_and_technologies!.map((t, i) => (
+                      <span key={i} style={{
+                        fontSize: "0.65rem", fontWeight: 600, padding: "4px 10px", borderRadius: 7,
+                        background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.2)",
+                        color: "#c4b5fd",
                       }}>
-                        Requirements with no supporting evidence in the CV, grouped by category.
-                      </p>
-                      {grouped.map((g, i) => (
-                        <SkillGroup key={i} group={g.group} skills={g.skills} idx={i} />
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right: Strengths + Gaps + Recommendation */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {topStr.length > 0 && (
+                <div style={{
+                  ...CARD, padding: 18,
+                  borderLeft: "3px solid #34d399", borderRadius: "0 16px 16px 0",
+                }}>
+                  <SectionLabel icon={Star} color="#34d399">Top Strengths</SectionLabel>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                    {topStr.slice(0, 4).map((s, i) => (
+                      <SidebarItem key={i} text={s} icon={CheckCircle2} color="#34d399" />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {topGaps.length > 0 && (
+                <div style={{
+                  ...CARD, padding: 18,
+                  borderLeft: "3px solid #f87171", borderRadius: "0 16px 16px 0",
+                }}>
+                  <SectionLabel icon={AlertCircle} color="#f87171">Top Gaps</SectionLabel>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                    {topGaps.slice(0, 4).map((s, i) => (
+                      <SidebarItem key={i} text={s} icon={XCircle} color="#f87171" />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{
+                ...CARD, padding: 18, flex: 1,
+                borderLeft: "3px solid #7A4DFF", borderRadius: "0 16px 16px 0",
+              }}>
+                <SectionLabel icon={Sparkles} color="#9B6FFF">Recommendation</SectionLabel>
+                <p style={{
+                  fontSize: "0.76rem", color: "rgba(255,255,255,0.5)", lineHeight: 1.82, margin: 0,
+                }}>
+                  {fp >= 75
+                    ? "Strong alignment detected. This candidate is well-positioned for the role. Proceed to interview and use the matched skills as focal talking points."
+                    : fp >= 50
+                    ? "Moderate alignment. The candidate meets core criteria but has notable gaps. Consider conditional progression with a targeted upskilling plan."
+                    : "Significant gaps exist across key dimensions. Extensive upskilling is recommended before this candidate would be competitive for this role."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ━━━ ANALYSIS TABS (full-width) ━━━ */}
+        <div
+          className="ats-up"
+          style={{ ...CARD, padding: 0, overflow: "hidden", animationDelay: ".23s" }}
+        >
+          {/* tab bar */}
+          <div style={{
+            display: "flex", borderBottom: "1px solid rgba(255,255,255,0.07)",
+            overflowX: "auto",
+          }}>
+            {TABS.map(t => {
+              const active = activeTab === t.id
+              return (
+                <button
+                  key={t.id}
+                  className="ats-tab-btn"
+                  onClick={() => setActiveTab(t.id as typeof activeTab)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 7,
+                    padding: "14px 22px", whiteSpace: "nowrap",
+                    background: "none", border: "none",
+                    borderBottom: active ? "2px solid #7A4DFF" : "2px solid transparent",
+                    color: active ? "white" : "rgba(255,255,255,0.32)",
+                    fontSize: "0.78rem", fontWeight: 700,
+                    cursor: "pointer", transition: "color .15s",
+                  }}
+                >
+                  {t.label}
+                  <span style={{
+                    fontSize: "0.58rem", fontWeight: 700, padding: "2px 7px",
+                    borderRadius: 99, color: t.color, background: `${t.color}18`,
+                  }}>
+                    {t.count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* ── tab content ── */}
+          <div key={activeTab} className="ats-tab-content" style={{ padding: 22 }}>
+
+            {/* MATCHES */}
+            {activeTab === "matches" && (
+              matched.length > 0
+                ? (
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))",
+                    gap: 10,
+                  }}>
+                    {matched.map((m, i) => <MatchCard key={i} m={m} idx={i} />)}
+                  </div>
+                )
+                : <EmptyState icon={FileText} text="No verified skill matches found. Consider tailoring the CV more closely to the job description." />
+            )}
+
+            {/* MISSING */}
+            {activeTab === "missing" && (
+              grouped.length > 0
+                ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <p style={{
+                      fontSize: "0.65rem", color: "rgba(255,255,255,0.28)",
+                      margin: "0 0 4px", lineHeight: 1.6,
+                    }}>
+                      Requirements with no supporting evidence in the CV, grouped by category.
+                    </p>
+                    {grouped.map((g, i) => (
+                      <SkillGroup key={i} group={g.group} skills={g.skills} idx={i} />
+                    ))}
+                  </div>
+                )
+                : missing.length > 0
+                  ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {missing.map((s, i) => (
+                        <span key={i} style={{
+                          fontSize: "0.74rem", fontWeight: 600, padding: "6px 13px",
+                          borderRadius: 9, border: "1px solid rgba(248,113,113,0.2)",
+                          background: "rgba(248,113,113,0.07)", color: "#fca5a5",
+                        }}>
+                          {s}
+                        </span>
                       ))}
                     </div>
                   )
-                  : missing.length > 0
-                    ? (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        {missing.map((s, i) => (
-                          <span key={i} style={{
-                            fontSize: "0.74rem", fontWeight: 600, padding: "6px 13px",
-                            borderRadius: 9, border: "1px solid rgba(248,113,113,0.2)",
-                            background: "rgba(248,113,113,0.07)", color: "#fca5a5",
-                          }}>
-                            {s}
-                          </span>
-                        ))}
-                      </div>
-                    )
-                    : <EmptyState icon={CheckCircle2} text="No missing requirements detected — excellent alignment." green />
-              )}
+                  : <EmptyState icon={CheckCircle2} text="No missing requirements detected — excellent alignment." green />
+            )}
 
-              {/* ADVICE */}
-              {activeTab === "advice" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-                  {effectiveOverallAdvice && (
-                    <div>
-                      <SectionLabel icon={MessageSquare} color="#7A4DFF">Overall Advice</SectionLabel>
-                      <p style={{
-                        fontSize: "0.8rem", color: "rgba(255,255,255,0.58)",
-                        lineHeight: 1.8, margin: 0,
+            {/* ADVICE */}
+            {activeTab === "advice" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                {effectiveOverallAdvice && (
+                  <div style={{
+                    borderLeft: "3px solid #7A4DFF",
+                    background: "rgba(122,77,255,0.06)",
+                    borderRadius: "0 12px 12px 0",
+                    padding: "14px 18px",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+                      <MessageSquare style={{ width: 12, height: 12, color: "#9B6FFF" }} />
+                      <span style={{
+                        fontSize: "0.55rem", fontWeight: 700, textTransform: "uppercase",
+                        letterSpacing: "0.22em", color: "rgba(255,255,255,0.35)",
                       }}>
-                        {effectiveOverallAdvice}
-                      </p>
+                        Overall Advice
+                      </span>
                     </div>
-                  )}
+                    <p style={{
+                      fontSize: "0.8rem", color: "rgba(255,255,255,0.62)",
+                      lineHeight: 1.82, margin: 0,
+                    }}>
+                      {effectiveOverallAdvice}
+                    </p>
+                  </div>
+                )}
 
-                  {effectivePriorities.length > 0 && (
+                {effectivePriorities.length > 0 && (
+                  <div>
+                    <SectionLabel icon={Target} color="#f87171">Priority Improvements</SectionLabel>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                      {effectivePriorities.map((item, i) => <PriorityCard key={i} item={item} idx={i} />)}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 22 }}>
+                  {effectiveCvImprov.length > 0 && (
                     <div>
-                      <SectionLabel icon={Target} color="#f87171">Priority Improvements</SectionLabel>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                        {effectivePriorities.map((item, i) => <PriorityCard key={i} item={item} idx={i} />)}
+                      <SectionLabel icon={FileText} color="#06b6d4">CV Improvements</SectionLabel>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {effectiveCvImprov.map((t, i) => <ListItem key={i} text={t} color="#06b6d4" />)}
                       </div>
                     </div>
                   )}
+                  {effectiveLearnRecs.length > 0 && (
+                    <div>
+                      <SectionLabel icon={BookOpen} color="#a78bfa">Learning Recommendations</SectionLabel>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {effectiveLearnRecs.map((t, i) => <ListItem key={i} text={t} color="#a78bfa" />)}
+                      </div>
+                    </div>
+                  )}
+                  {effectiveInterviewTips.length > 0 && (
+                    <div>
+                      <SectionLabel icon={Lightbulb} color="#fbbf24">Interview Tips</SectionLabel>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {effectiveInterviewTips.map((t, i) => <ListItem key={i} text={t} color="#fbbf24" />)}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 22 }}>
-                    {effectiveCvImprov.length > 0 && (
-                      <div>
-                        <SectionLabel icon={FileText} color="#06b6d4">CV Improvements</SectionLabel>
+                {!effectiveOverallAdvice && effectivePriorities.length === 0 && effectiveCvImprov.length === 0 && effectiveLearnRecs.length === 0 && (
+                  <EmptyState icon={MessageSquare} text="No detailed advice generated yet." />
+                )}
+              </div>
+            )}
+
+            {/* INSIGHTS */}
+            {activeTab === "insights" && (
+              strengths.length > 0 || insGaps.length > 0 || recs.length > 0
+                ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {strengths.length > 0 && (
+                      <div style={{
+                        borderLeft: "3px solid #34d399",
+                        background: "rgba(52,211,153,0.04)",
+                        borderRadius: "0 12px 12px 0",
+                        padding: "14px 18px",
+                      }}>
+                        <SectionLabel icon={Star} color="#34d399">Strengths</SectionLabel>
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {effectiveCvImprov.map((t, i) => <ListItem key={i} text={t} color="#06b6d4" />)}
+                          {strengths.map((t, i) => <ListItem key={i} text={t} color="#34d399" />)}
                         </div>
                       </div>
                     )}
-                    {effectiveLearnRecs.length > 0 && (
-                      <div>
-                        <SectionLabel icon={BookOpen} color="#a78bfa">Learning Recommendations</SectionLabel>
+                    {insGaps.length > 0 && (
+                      <div style={{
+                        borderLeft: "3px solid #f87171",
+                        background: "rgba(248,113,113,0.04)",
+                        borderRadius: "0 12px 12px 0",
+                        padding: "14px 18px",
+                      }}>
+                        <SectionLabel icon={AlertTriangle} color="#f87171">Gaps</SectionLabel>
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {effectiveLearnRecs.map((t, i) => <ListItem key={i} text={t} color="#a78bfa" />)}
+                          {insGaps.map((t, i) => <ListItem key={i} text={t} color="#f87171" />)}
                         </div>
                       </div>
                     )}
-                    {effectiveInterviewTips.length > 0 && (
-                      <div>
-                        <SectionLabel icon={Lightbulb} color="#fbbf24">Interview Tips</SectionLabel>
+                    {recs.length > 0 && (
+                      <div style={{
+                        borderLeft: "3px solid #7A4DFF",
+                        background: "rgba(122,77,255,0.04)",
+                        borderRadius: "0 12px 12px 0",
+                        padding: "14px 18px",
+                      }}>
+                        <SectionLabel icon={TrendingUp} color="#7A4DFF">Recommendations</SectionLabel>
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {effectiveInterviewTips.map((t, i) => <ListItem key={i} text={t} color="#fbbf24" />)}
+                          {recs.map((t, i) => <ListItem key={i} text={t} color="#7A4DFF" />)}
                         </div>
                       </div>
                     )}
                   </div>
-
-                  {!effectiveOverallAdvice && effectivePriorities.length === 0 && effectiveCvImprov.length === 0 && effectiveLearnRecs.length === 0 && (
-                    <EmptyState icon={MessageSquare} text="No detailed advice generated yet." />
-                  )}
-                </div>
-              )}
-
-              {/* INSIGHTS */}
-              {activeTab === "insights" && (
-                strengths.length > 0 || insGaps.length > 0 || recs.length > 0
-                  ? (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 22 }}>
-                      {strengths.length > 0 && (
-                        <div>
-                          <SectionLabel icon={Star} color="#34d399">Strengths</SectionLabel>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                            {strengths.map((t, i) => <ListItem key={i} text={t} color="#34d399" />)}
-                          </div>
-                        </div>
-                      )}
-                      {insGaps.length > 0 && (
-                        <div>
-                          <SectionLabel icon={AlertTriangle} color="#f87171">Gaps</SectionLabel>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                            {insGaps.map((t, i) => <ListItem key={i} text={t} color="#f87171" />)}
-                          </div>
-                        </div>
-                      )}
-                      {recs.length > 0 && (
-                        <div>
-                          <SectionLabel icon={TrendingUp} color="#7A4DFF">Recommendations</SectionLabel>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                            {recs.map((t, i) => <ListItem key={i} text={t} color="#7A4DFF" />)}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                  : <EmptyState icon={Brain} text="No detailed insights available yet." />
-              )}
-            </div>
-          </div>
-
-          {/* ━━━ SIDEBAR ━━━ */}
-          <div
-            className="ats-up"
-            style={{ display: "flex", flexDirection: "column", gap: 12, animationDelay: ".23s" }}
-          >
-            {/* Top Strengths */}
-            {topStr.length > 0 && (
-              <div style={{ ...CARD, padding: 18 }}>
-                <SectionLabel icon={Star} color="#34d399">Top Strengths</SectionLabel>
-                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                  {topStr.slice(0, 5).map((s, i) => (
-                    <SidebarItem key={i} text={s} icon={CheckCircle2} color="#34d399" />
-                  ))}
-                </div>
-              </div>
+                )
+                : <EmptyState icon={Brain} text="No detailed insights available yet." />
             )}
-
-            {/* Top Gaps */}
-            {topGaps.length > 0 && (
-              <div style={{ ...CARD, padding: 18 }}>
-                <SectionLabel icon={AlertCircle} color="#f87171">Top Gaps</SectionLabel>
-                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                  {topGaps.slice(0, 5).map((s, i) => (
-                    <SidebarItem key={i} text={s} icon={XCircle} color="#f87171" />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* JD Requirements */}
-            {(jd?.requirements?.length ?? 0) > 0 && (
-              <div style={{ ...CARD, padding: 18 }}>
-                <SectionLabel icon={ClipboardList} color="#06b6d4">JD Requirements</SectionLabel>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {jd!.requirements!.slice(0, 6).map((r, i) => (
-                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                      <ChevronRight style={{ width: 10, height: 10, color: "#06b6d4", flexShrink: 0, marginTop: 4 }} />
-                      <span style={{
-                        fontSize: "0.7rem", color: "rgba(255,255,255,0.52)", lineHeight: 1.55,
-                      }}>
-                        {r}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* JD Tools */}
-            {(jd?.tools_and_technologies?.length ?? 0) > 0 && (
-              <div style={{ ...CARD, padding: 18 }}>
-                <SectionLabel icon={Layers} color="#a78bfa">Required Technologies</SectionLabel>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {jd!.tools_and_technologies!.slice(0, 10).map((t, i) => (
-                    <span key={i} style={{
-                      fontSize: "0.65rem", fontWeight: 600, padding: "4px 10px", borderRadius: 7,
-                      background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.2)",
-                      color: "#c4b5fd",
-                    }}>
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Next Steps */}
-            <div style={{ ...CARD, padding: 18 }}>
-              <SectionLabel icon={TrendingUp} color="#7A4DFF">Next Steps</SectionLabel>
-              <p style={{
-                fontSize: "0.72rem", color: "rgba(255,255,255,0.4)", lineHeight: 1.75, margin: 0,
-              }}>
-                {fp >= 75
-                  ? "You're well-positioned. Use your matched skills as key talking points in interviews and tailor your cover letter to the specific responsibilities."
-                  : fp >= 50
-                  ? "Address the identified skill gaps and enrich your CV with targeted evidence. Focus on the priority improvements in the Advice tab."
-                  : "Significant upskilling is recommended before applying. Work through the learning recommendations and rebuild your CV around the JD requirements."}
-              </p>
-            </div>
           </div>
         </div>
       </div>

@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from hr_analyzer import analyze_cv_pair
 
 app = Flask(__name__)
