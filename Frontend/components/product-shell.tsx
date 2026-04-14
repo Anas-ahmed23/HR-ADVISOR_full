@@ -1,14 +1,8 @@
 import type { ComponentProps, ReactNode } from "react"
 import Link from "next/link"
 
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-
-const navigationItems = [
-  { href: "/", label: "Overview" },
-  { href: "/analyzer", label: "CV Analyzer" },
-  { href: "/voice-agent", label: "Voice Agent" },
-]
+import { NavBar } from "@/components/nav-bar"
 
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
@@ -72,37 +66,7 @@ export function ProductShell({
           <Link href="/" className="shrink-0">
             <BrandMark />
           </Link>
-
-          <nav className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] p-1.5 md:flex">
-            {navigationItems.map((item) => {
-              const active = currentPath === item.href
-              return (
-                <Button
-                  key={item.href}
-                  asChild
-                  variant="ghost"
-                  className={cn(
-                    "rounded-full px-4 text-sm text-white/65 hover:bg-white/[0.08] hover:text-white",
-                    active && "bg-white/[0.08] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]",
-                  )}
-                >
-                  <Link href={item.href}>{item.label}</Link>
-                </Button>
-              )
-            })}
-          </nav>
-
-          <div className="flex items-center gap-2 md:hidden">
-            <Button
-              asChild
-              variant="ghost"
-              className="rounded-full border border-white/10 bg-white/[0.03] px-4 text-sm text-white/80 hover:bg-white/10 hover:text-white"
-            >
-              <Link href={currentPath === "/voice-agent" ? "/analyzer" : "/voice-agent"}>
-                {currentPath === "/voice-agent" ? "CV Analyzer" : "Voice Agent"}
-              </Link>
-            </Button>
-          </div>
+          <NavBar currentPath={currentPath} />
         </div>
       </header>
 
@@ -114,15 +78,11 @@ export function ProductShell({
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 py-6 text-sm text-white/45 md:flex-row md:items-center md:justify-between md:px-8">
           <div className="flex items-center gap-3">
             <BrandMark compact />
-            <span>Structured screening and conversational interviews in one product.</span>
+            <span>Structured CV analysis and voice screening in one product.</span>
           </div>
           <div className="flex flex-wrap gap-4">
-            <Link href="/analyzer" className="transition-colors hover:text-white/75">
-              Analyze resumes
-            </Link>
-            <Link href="/voice-agent" className="transition-colors hover:text-white/75">
-              Run voice screening
-            </Link>
+            <Link href="/analyzer" className="transition-colors hover:text-white/75">CV Analyzer</Link>
+            <Link href="/voice-agent" className="transition-colors hover:text-white/75">Voice Agent</Link>
           </div>
         </div>
       </footer>
