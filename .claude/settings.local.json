@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx skills:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Read(//c/Users/User/Downloads/JDS \\(1\\)/**)",
+      "Read(//c/Users/User/Downloads/JDS \\(1\\)//**)",
+      "Bash(mkdir -p \"/c/Users/User/OneDrive/Documents/HR-ADVISOR_full/Frontend/public/jds\")",
+      "Bash(cp \"/c/Users/User/Downloads/JDS \\(1\\)/JDS/\"*.pdf \"/c/Users/User/OneDrive/Documents/HR-ADVISOR_full/Frontend/public/jds/\")",
+      "Bash(npx tsc:*)",
+      "Bash(npx claude-mem:*)",
+      "Bash(ls \"C:\\\\Users\\\\User\\\\OneDrive\\\\Documents\\\\HR-ADVISOR_full\\\\Backend\"/*.py)",
+      "Bash(grep \"\\\\.py$\")",
+      "Bash(npm install:*)",
+      "Bash(node -e \"require\\('jspdf'\\)\")",
+      "Bash(npm run:*)",
+      "Read(//c/Users/User/.claude/plugins/cache/ui-ux-pro-max-skill/ui-ux-pro-max/2.5.0/**)",
+      "Bash(python3 skills/ui-ux-pro-max/scripts/search.py \"HR recruitment ATS dashboard analytics dark professional SaaS\" --design-system -p \"HR Advisor\" -f markdown)",
+      "Bash(py --version)",
+      "Bash(py skills/ui-ux-pro-max/scripts/search.py \"HR recruitment ATS dashboard analytics dark professional SaaS\" --design-system -p \"HR Advisor\" -f markdown)",
+      "Bash(py cli/assets/scripts/search.py \"HR recruitment ATS dashboard analytics dark professional SaaS\" --design-system -p \"HR Advisor\" -f markdown)"
+    ]
+  }
+}
