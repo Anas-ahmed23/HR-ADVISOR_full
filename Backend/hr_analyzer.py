@@ -970,7 +970,7 @@ def run_llm_hr_advisor(cv_input, jd_input, extraction_result):
             {"role": "user", "content": json.dumps(payload)}
         ],
         temperature=0.0,
-        max_completion_tokens=4096
+        max_completion_tokens=8000
     )
 
     raw_output = response.choices[0].message.content.strip()
