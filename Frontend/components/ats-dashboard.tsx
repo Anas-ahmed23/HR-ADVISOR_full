@@ -1071,155 +1071,147 @@ export function ATSDashboard({ llm_analysis: raw, onReset }: DashboardProps) {
         </div>
 
         {/* ━━━ ROLE OVERVIEW + RECOMMENDATION ━━━ */}
-        {(jobTitle || domain || seniority || jd?.job_summary ||
-          (jd?.requirements?.length ?? 0) > 0 || (jd?.tools_and_technologies?.length ?? 0) > 0 ||
-          topStr.length > 0 || topGaps.length > 0) && (
-          <div
-            className="ats-up ats-role-grid"
-            style={{ animationDelay: ".19s" }}
-          >
-            {/* Left: Role Overview */}
-            <div style={{ ...CARD, padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
-              <SectionLabel icon={Briefcase} color="#06b6d4">Role Overview</SectionLabel>
-
-              {(jobTitle || domain || seniority) && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                  {jobTitle && (
-                    <span style={{ fontSize: "0.95rem", fontWeight: 800, color: "white" }}>{jobTitle}</span>
-                  )}
-                  {domain    && <Pill label={domain}    color="#c4b5fd" />}
-                  {seniority && <Pill label={seniority} color="#67e8f9" />}
-                </div>
-              )}
-
-              {jd?.job_summary && (
-                <p style={{
-                  fontSize: "0.76rem", color: "rgba(255,255,255,0.48)",
-                  lineHeight: 1.78, margin: 0,
-                }}>
-                  {jd.job_summary}
-                </p>
-              )}
-
-              {(jd?.requirements?.length ?? 0) > 0 && (
-                <div>
-                  <SectionLabel icon={ClipboardList} color="#06b6d4" mb={10}>Key Requirements</SectionLabel>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                    {jd!.requirements!.map((r, i) => (
-                      <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                        <ChevronRight style={{ width: 10, height: 10, color: "#06b6d4", flexShrink: 0, marginTop: 4 }} />
-                        <span style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.55)", lineHeight: 1.55 }}>
-                          {r}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(jd?.tools_and_technologies?.length ?? 0) > 0 && (
-                <div>
-                  <SectionLabel icon={Layers} color="#a78bfa" mb={10}>Required Technologies</SectionLabel>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {jd!.tools_and_technologies!.map((t, i) => (
-                      <span key={i} style={{
-                        fontSize: "0.65rem", fontWeight: 600, padding: "4px 10px", borderRadius: 7,
-                        background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.2)",
-                        color: "#c4b5fd",
-                      }}>
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Right: Strengths + Gaps */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {topStr.length > 0 && (
-                <div style={{
-                  ...CARD, padding: 18,
-                  borderLeft: "3px solid #34d399", borderRadius: "0 16px 16px 0",
-                }}>
-                  <SectionLabel icon={Star} color="#34d399">Top Strengths</SectionLabel>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                    {topStr.slice(0, 4).map((s, i) => (
-                      <SidebarItem key={i} text={s} icon={CheckCircle2} color="#34d399" />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {topGaps.length > 0 && (
-                <div style={{
-                  ...CARD, padding: 18,
-                  borderLeft: "3px solid #f87171", borderRadius: "0 16px 16px 0",
-                }}>
-                  <SectionLabel icon={AlertCircle} color="#f87171">Top Gaps</SectionLabel>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                    {topGaps.slice(0, 4).map((s, i) => (
-                      <SidebarItem key={i} text={s} icon={XCircle} color="#f87171" />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(topStr.length === 0 && topGaps.length === 0) && (
-                <div style={{
-                  ...CARD, padding: 18,
-                  fontSize: "0.72rem", color: "rgba(255,255,255,0.28)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  minHeight: 80,
-                }}>
-                  Strengths &amp; gap signals appear here once the API returns ATS summary data.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ━━━ RECOMMENDATION (always visible) ━━━ */}
         <div
-          className="ats-up"
-          style={{
-            ...CARD, padding: "20px 22px", animationDelay: ".20s",
-            borderLeft: "3px solid #7A4DFF", borderRadius: "0 16px 16px 0",
-          }}
+          className="ats-up ats-role-grid"
+          style={{ animationDelay: ".19s" }}
         >
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 220 }}>
+          {/* Left: Role Overview */}
+          <div style={{ ...CARD, padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+            <SectionLabel icon={Briefcase} color="#06b6d4">Role Overview</SectionLabel>
+
+            {(jobTitle || domain || seniority || jd?.job_summary ||
+              (jd?.requirements?.length ?? 0) > 0 ||
+              (jd?.tools_and_technologies?.length ?? 0) > 0) ? (
+              <>
+                {(jobTitle || domain || seniority) && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                    {jobTitle && (
+                      <span style={{ fontSize: "0.95rem", fontWeight: 800, color: "white" }}>{jobTitle}</span>
+                    )}
+                    {domain    && <Pill label={domain}    color="#c4b5fd" />}
+                    {seniority && <Pill label={seniority} color="#67e8f9" />}
+                  </div>
+                )}
+
+                {jd?.job_summary && (
+                  <p style={{
+                    fontSize: "0.76rem", color: "rgba(255,255,255,0.48)",
+                    lineHeight: 1.78, margin: 0,
+                  }}>
+                    {jd.job_summary}
+                  </p>
+                )}
+
+                {(jd?.requirements?.length ?? 0) > 0 && (
+                  <div>
+                    <SectionLabel icon={ClipboardList} color="#06b6d4" mb={10}>Key Requirements</SectionLabel>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                      {jd!.requirements!.map((r, i) => (
+                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                          <ChevronRight style={{ width: 10, height: 10, color: "#06b6d4", flexShrink: 0, marginTop: 4 }} />
+                          <span style={{ fontSize: "0.72rem", color: "rgba(255,255,255,0.55)", lineHeight: 1.55 }}>
+                            {r}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(jd?.tools_and_technologies?.length ?? 0) > 0 && (
+                  <div>
+                    <SectionLabel icon={Layers} color="#a78bfa" mb={10}>Required Technologies</SectionLabel>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {jd!.tools_and_technologies!.map((t, i) => (
+                        <span key={i} style={{
+                          fontSize: "0.65rem", fontWeight: 600, padding: "4px 10px", borderRadius: 7,
+                          background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.2)",
+                          color: "#c4b5fd",
+                        }}>
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p style={{
+                fontSize: "0.72rem", color: "rgba(255,255,255,0.22)",
+                fontStyle: "italic", lineHeight: 1.7, margin: 0,
+              }}>
+                Role details were not returned in this analysis.
+              </p>
+            )}
+          </div>
+
+          {/* Right: Recommendation (always) + Top Strengths & Gaps (when present) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+            {/* ── Hiring Recommendation ── always visible, occupies right col */}
+            <div style={{
+              ...CARD, padding: "18px 20px",
+              borderLeft: "3px solid #7A4DFF", borderRadius: "0 16px 16px 0",
+            }}>
               <SectionLabel icon={Sparkles} color="#9B6FFF" mb={10}>Hiring Recommendation</SectionLabel>
-              <p style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.58)", lineHeight: 1.85, margin: 0 }}>
+              <p style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.55)", lineHeight: 1.82, margin: "0 0 14px" }}>
                 {fp >= 75
                   ? "Strong alignment detected. This candidate is well-positioned for the role. Proceed to interview and use the matched skills as focal talking points."
                   : fp >= 50
                   ? "Moderate alignment. The candidate meets core criteria but has notable gaps. Consider conditional progression with a targeted upskilling plan."
                   : "Significant gaps exist across key dimensions. Extensive upskilling is recommended before this candidate would be competitive for this role."}
               </p>
-            </div>
-            <div style={{
-              display: "flex", flexDirection: "column", gap: 8, minWidth: 180, alignItems: "flex-start",
-            }}>
-              <div style={{
-                padding: "6px 14px", borderRadius: 9,
-                background: fp >= 75 ? "rgba(52,211,153,0.12)" : fp >= 50 ? "rgba(251,191,36,0.12)" : "rgba(248,113,113,0.12)",
-                border: `1px solid ${fp >= 75 ? "rgba(52,211,153,0.3)" : fp >= 50 ? "rgba(251,191,36,0.3)" : "rgba(248,113,113,0.3)"}`,
-                color: fp >= 75 ? "#34d399" : fp >= 50 ? "#fbbf24" : "#f87171",
-                fontSize: "0.72rem", fontWeight: 700,
-              }}>
-                {fp >= 75 ? "Proceed to interview" : fp >= 50 ? "Conditional progression" : "Not recommended"}
-              </div>
-              {fp >= 75 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 <div style={{
                   padding: "6px 14px", borderRadius: 9,
-                  background: "rgba(122,77,255,0.12)", border: "1px solid rgba(122,77,255,0.25)",
-                  color: "#a78bfa", fontSize: "0.72rem", fontWeight: 700,
+                  background: fp >= 75 ? "rgba(52,211,153,0.12)" : fp >= 50 ? "rgba(251,191,36,0.12)" : "rgba(248,113,113,0.12)",
+                  border: `1px solid ${fp >= 75 ? "rgba(52,211,153,0.3)" : fp >= 50 ? "rgba(251,191,36,0.3)" : "rgba(248,113,113,0.3)"}`,
+                  color: fp >= 75 ? "#34d399" : fp >= 50 ? "#fbbf24" : "#f87171",
+                  fontSize: "0.72rem", fontWeight: 700,
                 }}>
-                  Voice screen recommended
+                  {fp >= 75 ? "Proceed to interview" : fp >= 50 ? "Conditional progression" : "Not recommended"}
                 </div>
-              )}
+                {fp >= 75 && (
+                  <div style={{
+                    padding: "6px 14px", borderRadius: 9,
+                    background: "rgba(122,77,255,0.12)", border: "1px solid rgba(122,77,255,0.25)",
+                    color: "#a78bfa", fontSize: "0.72rem", fontWeight: 700,
+                  }}>
+                    Voice screen recommended
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* ── Top Strengths (if present) ── */}
+            {topStr.length > 0 && (
+              <div style={{
+                ...CARD, padding: 18,
+                borderLeft: "3px solid #34d399", borderRadius: "0 16px 16px 0",
+              }}>
+                <SectionLabel icon={Star} color="#34d399">Top Strengths</SectionLabel>
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  {topStr.slice(0, 4).map((s, i) => (
+                    <SidebarItem key={i} text={s} icon={CheckCircle2} color="#34d399" />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Top Gaps (if present) ── */}
+            {topGaps.length > 0 && (
+              <div style={{
+                ...CARD, padding: 18,
+                borderLeft: "3px solid #f87171", borderRadius: "0 16px 16px 0",
+              }}>
+                <SectionLabel icon={AlertCircle} color="#f87171">Top Gaps</SectionLabel>
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  {topGaps.slice(0, 4).map((s, i) => (
+                    <SidebarItem key={i} text={s} icon={XCircle} color="#f87171" />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
