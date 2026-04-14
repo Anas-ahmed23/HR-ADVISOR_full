@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 
 import { ProductPanel, ProductShell } from "@/components/product-shell"
+import { VoiceAgentCTA } from "@/components/voice-agent-cta"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -405,17 +406,7 @@ export default function HomePage() {
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
-              <Button
-                asChild
-                size="lg"
-                variant="outline"
-                className="w-full rounded-full border-white/14 bg-white/[0.03] px-7 text-white transition-all duration-200 hover:bg-white/[0.07] hover:text-white sm:w-auto"
-              >
-                <Link href="/voice-agent">
-                  <Mic className="h-4 w-4" />
-                  Start voice screening
-                </Link>
-              </Button>
+              <VoiceAgentCTA />
             </div>
 
             {/* Trust row */}
