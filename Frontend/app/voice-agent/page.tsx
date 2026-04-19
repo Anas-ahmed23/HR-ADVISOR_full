@@ -56,7 +56,13 @@ const systemResponseFragments = [
 ]
 
 const recorderSegmentMs = 1600
-const utteranceSilenceWindowMs = 2200
+const utteranceSilenceWindowMs = 2800
+const vadCheckIntervalMs = 120
+const vadSpeechHoldMs = 1400
+const vadMinimumRms = 0.012
+const vadNoiseSmoothing = 0.92
+const vadSpeechMultiplier = 2.4
+const bargeInImmediateMinChars = 4
 
 const ignoredCandidatePhrases = [
   "the speaker is speaking english",
@@ -96,6 +102,32 @@ function mergeCandidateUtterances(existingText: string, incomingText: string) {
     return existing
   }
   return `${existing} ${incoming}`.trim()
+}
+
+function hasSubstantiveSpeech(text: string) {
+  const normalized = normalizeTranscriptText(text)
+  if (!normalized || normalized.length < bargeInImmediateMinChars) return false
+  const words = normalized.split(" ").filter(Boolean)
+  if (!words.length) return false
+  return /[a-z]/i.test(normalized)
+}
+
+function isLikelyAIEcho(transcribedText: string, aiText: string) {
+  const transcribed = normalizeTranscriptText(transcribedText)
+  const ai = normalizeTranscriptText(aiText)
+  if (!transcribed || !ai) return false
+  if (ai.includes(transcribed) && transcribed.length >= 4) return true
+
+  const transcribedTokens = new Set(transcribed.split(" ").filter((token) => token.length > 2))
+  const aiTokens = new Set(ai.split(" ").filter((token) => token.length > 2))
+  if (!transcribedTokens.size || !aiTokens.size) return false
+
+  let overlap = 0
+  for (const token of transcribedTokens) {
+    if (aiTokens.has(token)) overlap += 1
+  }
+  const overlapRatio = overlap / Math.max(1, transcribedTokens.size)
+  return overlapRatio >= 0.7
 }
 
 const topicLibrary = [
@@ -403,7 +435,6 @@ export default function VoiceAgentPage() {
   const [speechSupported, setSpeechSupported] = useState(true)
   const [activeTab, setActiveTab] = useState("transcript")
   const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([])
-  const [liveTranscript, setLiveTranscript] = useState("")
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null)
   const [sessionEndedAt, setSessionEndedAt] = useState<number | null>(null)
   const [hasCompletedSession, setHasCompletedSession] = useState(false)
@@ -413,6 +444,14 @@ export default function VoiceAgentPage() {
   const httpClientRef = useRef<HTTPClient | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  const vadBufferRef = useRef<Float32Array | null>(null)
+  const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastVoiceActivityAtRef = useRef(0)
+  const vadNoiseFloorRef = useRef(vadMinimumRms)
+  const vadEnabledRef = useRef(false)
   const recorderSegmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isTranscribingChunkRef = useRef(false)
   const pendingChunkRef = useRef<Blob | null>(null)
@@ -426,10 +465,12 @@ export default function VoiceAgentPage() {
   const isListeningRef = useRef(false)
   const isProcessingRef = useRef(false)
   const isAISpeakingRef = useRef(false)
+  const isBargeInInFlightRef = useRef(false)
   const isAwaitingResponseRef = useRef(false)
   const intentionalDisconnectRef = useRef(false)
   const isSuppressedByAIRef = useRef(false)
   const isBargeInWindowRef = useRef(false)
+  const lastAIUtteranceRef = useRef("")
   const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -491,7 +532,7 @@ export default function VoiceAgentPage() {
         isAwaitingResponseRef.current = false
         setIsProcessing(false)
         setIsAISpeaking(false)
-        clearPendingCandidateUtterance(true)
+        clearPendingCandidateUtterance()
         // AI finished naturally — short pause for echo tail, then resume mic
         setTimeout(() => {
           if (
@@ -526,7 +567,7 @@ export default function VoiceAgentPage() {
         if (!isCallActiveRef.current) return
 
         isAwaitingResponseRef.current = false
-        clearPendingCandidateUtterance(true)
+        clearPendingCandidateUtterance()
         setIsProcessing(false)
         setIsAISpeaking(true)
         isSuppressedByAIRef.current = true
@@ -546,6 +587,7 @@ export default function VoiceAgentPage() {
         }, 1500)
 
         if (!systemResponseFragments.some((fragment) => normalized.includes(fragment))) {
+          lastAIUtteranceRef.current = response
           appendTranscriptEntry("AI", response)
         }
       },
@@ -557,7 +599,8 @@ export default function VoiceAgentPage() {
         isAwaitingResponseRef.current = false
         isSuppressedByAIRef.current = false
         isBargeInWindowRef.current = false
-        clearPendingCandidateUtterance(true)
+        lastAIUtteranceRef.current = ""
+        clearPendingCandidateUtterance()
 
         if (connected) {
           intentionalDisconnectRef.current = false
@@ -576,6 +619,7 @@ export default function VoiceAgentPage() {
         isAwaitingResponseRef.current = false
         isSuppressedByAIRef.current = false
         isBargeInWindowRef.current = false
+        lastAIUtteranceRef.current = ""
         setIsProcessing(false)
         setIsAISpeaking(false)
       },
@@ -621,6 +665,7 @@ export default function VoiceAgentPage() {
         }
         mediaStreamRef.current = null
       }
+      stopVoiceActivityMonitor()
 
       if (bargeInTimeoutRef.current) {
         clearTimeout(bargeInTimeoutRef.current)
@@ -659,34 +704,131 @@ export default function VoiceAgentPage() {
       }
       mediaStreamRef.current = null
     }
+    stopVoiceActivityMonitor()
 
     pendingChunkRef.current = null
     isTranscribingChunkRef.current = false
     setIsListening(false)
-    setLiveTranscript("")
   }
 
-  const clearPendingCandidateUtterance = (clearLiveTranscript = false) => {
+  const clearPendingCandidateUtterance = () => {
     if (pendingCandidateTimerRef.current) {
       clearTimeout(pendingCandidateTimerRef.current)
       pendingCandidateTimerRef.current = null
     }
     pendingCandidateUtteranceRef.current = ""
-    if (clearLiveTranscript) {
-      setLiveTranscript("")
+  }
+
+  const stopVoiceActivityMonitor = () => {
+    if (vadTimerRef.current) {
+      clearInterval(vadTimerRef.current)
+      vadTimerRef.current = null
+    }
+
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.disconnect()
+      } catch {
+        // ignore disconnect races during teardown
+      }
+      sourceNodeRef.current = null
+    }
+
+    if (analyserRef.current) {
+      try {
+        analyserRef.current.disconnect()
+      } catch {
+        // ignore disconnect races during teardown
+      }
+      analyserRef.current = null
+    }
+
+    if (audioContextRef.current) {
+      try {
+        void audioContextRef.current.close()
+      } catch {
+        // ignore close errors when context is already closed
+      }
+      audioContextRef.current = null
+    }
+
+    vadBufferRef.current = null
+    lastVoiceActivityAtRef.current = 0
+    vadNoiseFloorRef.current = vadMinimumRms
+    vadEnabledRef.current = false
+  }
+
+  const hasRecentVoiceActivity = () => {
+    if (!vadEnabledRef.current) return true
+    const elapsed = Date.now() - lastVoiceActivityAtRef.current
+    return elapsed >= 0 && elapsed <= vadSpeechHoldMs
+  }
+
+  const startVoiceActivityMonitor = async (stream: MediaStream) => {
+    stopVoiceActivityMonitor()
+
+    if (typeof window === "undefined" || typeof window.AudioContext === "undefined") {
+      vadEnabledRef.current = false
+      return
+    }
+    try {
+      const context = new window.AudioContext()
+      const source = context.createMediaStreamSource(stream)
+      const analyser = context.createAnalyser()
+      analyser.fftSize = 2048
+      analyser.smoothingTimeConstant = 0.2
+      source.connect(analyser)
+
+      audioContextRef.current = context
+      sourceNodeRef.current = source
+      analyserRef.current = analyser
+      vadBufferRef.current = new Float32Array(analyser.fftSize)
+      lastVoiceActivityAtRef.current = 0
+      vadNoiseFloorRef.current = vadMinimumRms
+      vadEnabledRef.current = true
+
+      vadTimerRef.current = setInterval(() => {
+        const activeAnalyser = analyserRef.current
+        const buffer = vadBufferRef.current
+        if (!activeAnalyser || !buffer) return
+
+        activeAnalyser.getFloatTimeDomainData(buffer as Float32Array<ArrayBuffer>)
+        let sumSquares = 0
+        for (let i = 0; i < buffer.length; i += 1) {
+          const sample = buffer[i]
+          sumSquares += sample * sample
+        }
+        const rms = Math.sqrt(sumSquares / buffer.length)
+        const currentNoiseFloor = vadNoiseFloorRef.current
+        if (rms < currentNoiseFloor * 1.6) {
+          vadNoiseFloorRef.current = currentNoiseFloor * vadNoiseSmoothing + rms * (1 - vadNoiseSmoothing)
+        }
+
+        const threshold = Math.max(vadMinimumRms, vadNoiseFloorRef.current * vadSpeechMultiplier)
+        if (rms >= threshold) {
+          lastVoiceActivityAtRef.current = Date.now()
+        }
+      }, vadCheckIntervalMs)
+    } catch {
+      // If WebAudio VAD isn't available, don't block transcription.
+      vadEnabledRef.current = false
     }
   }
 
   const handleBargeIn = async () => {
+    if (isBargeInInFlightRef.current) return
+    isBargeInInFlightRef.current = true
+
     // Kill the lockout timer so it doesn't restart mic on top of us
     if (bargeInWindowTimerRef.current) {
       clearTimeout(bargeInWindowTimerRef.current)
       bargeInWindowTimerRef.current = null
     }
-    await httpClientRef.current?.interrupt()
     httpClientRef.current?.stopAudioPlayback()
+    void httpClientRef.current?.interrupt()
     isSuppressedByAIRef.current = false
     isBargeInWindowRef.current = false
+    setIsProcessing(false)
     setIsAISpeaking(false)
     setAiResponse("")
 
@@ -694,6 +836,8 @@ export default function VoiceAgentPage() {
       clearTimeout(bargeInTimeoutRef.current)
       bargeInTimeoutRef.current = null
     }
+
+    isBargeInInFlightRef.current = false
   }
 
   const processCandidateUtterance = async (text: string) => {
@@ -759,7 +903,7 @@ export default function VoiceAgentPage() {
     const combinedUtterance = pendingCandidateUtteranceRef.current.trim()
     if (!combinedUtterance) return
     if (!isCallActiveRef.current || !isMicOnRef.current) {
-      clearPendingCandidateUtterance(true)
+      clearPendingCandidateUtterance()
       return
     }
     if (isAwaitingResponseRef.current || isProcessingRef.current) {
@@ -781,7 +925,6 @@ export default function VoiceAgentPage() {
 
     const merged = mergeCandidateUtterances(pendingCandidateUtteranceRef.current, chunk)
     pendingCandidateUtteranceRef.current = merged
-    setLiveTranscript(merged)
 
     if (pendingCandidateTimerRef.current) {
       clearTimeout(pendingCandidateTimerRef.current)
@@ -795,6 +938,7 @@ export default function VoiceAgentPage() {
     if (!httpClientRef.current || !isCallActiveRef.current || !isMicOnRef.current) return
     if (audioChunk.size < 2048) return
     if (isProcessingRef.current && !isAISpeakingRef.current) return
+    if (!hasRecentVoiceActivity()) return
 
     if (isTranscribingChunkRef.current) {
       pendingChunkRef.current = audioChunk
@@ -805,6 +949,18 @@ export default function VoiceAgentPage() {
     try {
       const text = await httpClientRef.current.transcribeAudio(audioChunk)
       if (!text || shouldIgnoreCandidateUtterance(text)) return
+      const echoRiskActive = isAISpeakingRef.current || isSuppressedByAIRef.current || isBargeInWindowRef.current
+      if (echoRiskActive && isLikelyAIEcho(text, lastAIUtteranceRef.current)) return
+
+      if (
+        isAISpeakingRef.current &&
+        isBargeInWindowRef.current &&
+        hasSubstantiveSpeech(text) &&
+        !isBargeInInFlightRef.current
+      ) {
+        await handleBargeIn()
+      }
+
       queueCandidateUtteranceChunk(text)
     } catch {
       // HTTPClient.onError already maps and surfaces the network/backend issue.
@@ -860,7 +1016,6 @@ export default function VoiceAgentPage() {
     }
 
     setError("")
-    setLiveTranscript("")
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -870,6 +1025,7 @@ export default function VoiceAgentPage() {
       },
     })
     mediaStreamRef.current = stream
+    await startVoiceActivityMonitor(stream)
 
     const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
     const mimeType = mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate))
@@ -929,11 +1085,11 @@ export default function VoiceAgentPage() {
 
     intentionalDisconnectRef.current = false
     isAwaitingResponseRef.current = false
-    clearPendingCandidateUtterance(true)
+    lastAIUtteranceRef.current = ""
+    clearPendingCandidateUtterance()
     setError("")
     setUserSpeech("")
     setAiResponse("")
-    setLiveTranscript("")
     setTranscriptEntries([])
     setIsMicOn(true)
     setIsConnecting(true)
@@ -961,7 +1117,8 @@ export default function VoiceAgentPage() {
     isCallActiveRef.current = false
     isMicOnRef.current = false
     isAwaitingResponseRef.current = false
-    clearPendingCandidateUtterance(true)
+    lastAIUtteranceRef.current = ""
+    clearPendingCandidateUtterance()
 
     const shouldInterruptBackend = isAISpeakingRef.current || isProcessingRef.current
 
@@ -1011,7 +1168,7 @@ export default function VoiceAgentPage() {
     }
 
     stopSpeechRecognition()
-    clearPendingCandidateUtterance(true)
+    clearPendingCandidateUtterance()
 
     if (bargeInTimeoutRef.current) {
       clearTimeout(bargeInTimeoutRef.current)
@@ -1040,8 +1197,8 @@ export default function VoiceAgentPage() {
     ? "Assistant is processing the latest candidate response."
     : isAISpeaking
       ? "Assistant audio playback is active."
-      : liveTranscript
-        ? "Candidate speech is being transcribed live."
+      : isListening
+        ? "Listening for candidate response."
         : aiResponse || "Session activity will appear here."
 
   /* ── ACCESS GUARD ── */
@@ -1337,7 +1494,7 @@ export default function VoiceAgentPage() {
                   <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Candidate input</div>
                     <div className="mt-2 line-clamp-3 text-sm leading-6 text-white/65">
-                      {liveTranscript || userSpeech || "Waiting for candidate speech…"}
+                      {userSpeech || "Waiting for candidate speech…"}
                     </div>
                   </div>
                   <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
@@ -1466,7 +1623,7 @@ export default function VoiceAgentPage() {
             {/* TRANSCRIPT TAB */}
             <TabsContent value="transcript">
               <div className="max-h-[520px] space-y-2.5 overflow-y-auto pr-1">
-                {!transcriptEntries.length && !liveTranscript && (
+                {!transcriptEntries.length && (
                   <div className="rounded-[22px] border border-dashed border-white/12 bg-black/20 p-5 text-sm leading-7 text-white/48">
                     The transcript panel stays empty until the conversation starts. Candidate and assistant turns appear here with timestamps for later review.
                   </div>
@@ -1488,17 +1645,6 @@ export default function VoiceAgentPage() {
                     <div className="mt-2 text-sm leading-6 text-white/70">{entry.text}</div>
                   </div>
                 ))}
-                {liveTranscript && (
-                  <div className="rounded-[22px] border border-dashed border-violet-400/18 bg-violet-400/8 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-200">
-                        Candidate speaking
-                      </div>
-                      <div className="text-[10px] text-violet-100/50">Live</div>
-                    </div>
-                    <div className="mt-2 text-sm leading-6 text-white/70">{liveTranscript}</div>
-                  </div>
-                )}
               </div>
             </TabsContent>
 
