@@ -73,7 +73,10 @@ SERVER_PORT = int(os.getenv("SERVER_PORT", "5000"))
 DEBUG       = os.getenv("DEBUG", "true").lower() == "true"
 
 # ── Voice context (HR candidate / JD documents) ────────────────────────────
-VOICE_CONTEXT_JSON         = os.getenv("VOICE_CONTEXT_JSON", "")
+DEFAULT_VOICE_CONTEXT_JSON = str(
+    (Path(__file__).resolve().parent / "runtime" / "voice_context" / "current_context.json")
+)
+VOICE_CONTEXT_JSON         = os.getenv("VOICE_CONTEXT_JSON", DEFAULT_VOICE_CONTEXT_JSON)
 VOICE_CONTEXT_PDFS_RAW     = os.getenv("VOICE_CONTEXT_PDFS", "")
 VOICE_CONTEXT_PDFS         = [p.strip() for p in VOICE_CONTEXT_PDFS_RAW.split(",") if p.strip()]
 VOICE_CONTEXT_PDF_MAX_CHARS = int(os.getenv("VOICE_CONTEXT_PDF_MAX_CHARS", "12000"))
@@ -170,6 +173,23 @@ def _build_tts_url() -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 _context_pack_cache: Optional[str] = None
+_context_signature_cache: Optional[Tuple[Any, ...]] = None
+_context_lock = threading.Lock()
+
+
+def _path_signature(path: Path) -> Tuple[bool, int, int]:
+    """Small fingerprint for reload detection."""
+    try:
+        stat = path.stat()
+        return (True, int(stat.st_mtime_ns), int(stat.st_size))
+    except Exception:
+        return (False, 0, 0)
+
+
+def _context_signature() -> Tuple[Any, ...]:
+    json_sig = _path_signature(Path(VOICE_CONTEXT_JSON)) if VOICE_CONTEXT_JSON else (False, 0, 0)
+    pdf_sig = tuple(_path_signature(Path(p)) for p in VOICE_CONTEXT_PDFS)
+    return (json_sig, pdf_sig, VOICE_CONTEXT_MAX_CHARS, VOICE_CONTEXT_PDF_MAX_CHARS)
 
 
 def _pdf_excerpt(path: Path, limit: int = 12000) -> str:
@@ -267,12 +287,46 @@ def _build_context_pack() -> str:
     return _compact_text("\n".join(sections), VOICE_CONTEXT_MAX_CHARS)
 
 
-def get_context_pack() -> str:
-    global _context_pack_cache
-    if _context_pack_cache is None:
-        _context_pack_cache = _build_context_pack()
-        log(f"[CTX] Context pack loaded ({len(_context_pack_cache)} chars).")
-    return _context_pack_cache
+def get_context_pack(force_reload: bool = False) -> str:
+    global _context_pack_cache, _context_signature_cache
+    sig = _context_signature()
+    with _context_lock:
+        if force_reload or _context_pack_cache is None or _context_signature_cache != sig:
+            _context_pack_cache = _build_context_pack()
+            _context_signature_cache = sig
+            log(f"[CTX] Context pack loaded ({len(_context_pack_cache)} chars).")
+    return _context_pack_cache or ""
+
+
+def upsert_runtime_context_json(payload: Dict[str, Any]) -> str:
+    """
+    Atomically write runtime JSON context to VOICE_CONTEXT_JSON target.
+    Returns resolved output path.
+    """
+    if not VOICE_CONTEXT_JSON:
+        raise RuntimeError("VOICE_CONTEXT_JSON is not configured.")
+
+    target = Path(VOICE_CONTEXT_JSON).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    blob = json.dumps(payload, ensure_ascii=False, indent=2)
+
+    # Atomic swap: write temp file in same directory, then replace target.
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=str(target.parent),
+        prefix=f"{target.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as fh:
+        fh.write(blob)
+        fh.flush()
+        os.fsync(fh.fileno())
+        temp_name = fh.name
+
+    os.replace(temp_name, target)
+    get_context_pack(force_reload=True)
+    return str(target)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -571,6 +625,7 @@ def health_check():
         except Exception:
             bridge = None
 
+    context_pack = get_context_pack()
     configured = all([
         AZURE_OPENAI_API_KEY,
         AZURE_OPENAI_ENDPOINT,
@@ -585,7 +640,7 @@ def health_check():
         "llm_loaded":       _llm_client is not None,
         "stt_available":    bool(AZURE_TRANSCRIBE_API_KEY or AZURE_OPENAI_API_KEY),
         "tts_available":    bool(AZURE_TTS_API_KEY or AZURE_OPENAI_API_KEY),
-        "context_loaded":   bool(_context_pack_cache),
+        "context_loaded":   bool(context_pack),
         "webrtc_available": bool(WEBRTC_RUNTIME_AVAILABLE),
         "webrtc_sessions":  bridge.active_sessions() if bridge else 0,
     }
@@ -601,6 +656,7 @@ def status():
         except Exception:
             bridge = None
 
+    context_pack = get_context_pack()
     return jsonify({
         "server":          "HR Advisor Voice Agent (Azure)",
         "status":          "running",
@@ -608,10 +664,40 @@ def status():
         "stt_deployment":  AZURE_TRANSCRIBE_DEPLOYMENT,
         "tts_deployment":  AZURE_TTS_DEPLOYMENT,
         "tts_voice":       AZURE_TTS_VOICE,
-        "context_chars":   len(_context_pack_cache) if _context_pack_cache else 0,
+        "context_chars":   len(context_pack),
         "webrtc_available": bool(WEBRTC_RUNTIME_AVAILABLE),
         "webrtc_sessions":  bridge.active_sessions() if bridge else 0,
     })
+
+
+@app.route("/context/json", methods=["POST"])
+def set_context_json():
+    """
+    Push dynamic runtime JSON context into VOICE_CONTEXT_JSON path.
+    Body can be either:
+      - raw context object
+      - {"context": {...}}
+    """
+    if not request.is_json:
+        return jsonify({"error": "JSON content type required"}), 400
+    body = request.get_json() or {}
+    if isinstance(body, dict) and "context" in body and isinstance(body["context"], dict):
+        payload = body["context"]
+    elif isinstance(body, dict):
+        payload = body
+    else:
+        return jsonify({"error": "Invalid JSON payload"}), 400
+
+    try:
+        output_path = upsert_runtime_context_json(payload)
+        context_pack = get_context_pack()
+        return jsonify({
+            "status": "ok",
+            "path": output_path,
+            "context_chars": len(context_pack),
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Context update failed: {exc}"}), 500
 
 
 @app.route("/speaking_status", methods=["GET"])
@@ -827,6 +913,7 @@ def initialize() -> None:
     print(f"  TTS : {AZURE_TTS_DEPLOYMENT}  voice={AZURE_TTS_VOICE}")
     print(f"  WebRTC runtime available: {WEBRTC_RUNTIME_AVAILABLE}")
     print(f"  Host: {SERVER_HOST}:{SERVER_PORT}")
+    print(f"  Context JSON path: {VOICE_CONTEXT_JSON}")
 
     if not AZURE_OPENAI_API_KEY or not AZURE_OPENAI_ENDPOINT:
         raise RuntimeError("AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT are required.")
@@ -842,6 +929,7 @@ def initialize() -> None:
     print("\nEndpoints:")
     print("  GET  /health          — liveness check")
     print("  GET  /status          — service details")
+    print("  POST /context/json    — push runtime JSON context")
     print("  POST /chat            — main voice chat")
     print("  POST /transcribe      — STT only")
     print("  POST /synthesize      — TTS only")
