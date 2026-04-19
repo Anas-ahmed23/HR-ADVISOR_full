@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import os
 import re
 import sys
@@ -411,6 +412,13 @@ def process_audio_input(
                 pass
 
 
+def _guess_audio_mime_type(filename: str, fallback: str = "audio/wav") -> str:
+    guessed, _ = mimetypes.guess_type(filename)
+    if guessed and guessed.startswith("audio/"):
+        return guessed
+    return fallback
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TTS  (Azure GPT-4o-mini TTS)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -641,6 +649,8 @@ def transcribe_endpoint():
         filename = audio_file.filename or "audio.wav"
         suffix = Path(filename).suffix or ".wav"
         mime_type = (audio_file.mimetype or "audio/wav").split(";")[0]
+        if mime_type in {"", "application/octet-stream"}:
+            mime_type = _guess_audio_mime_type(filename, fallback="audio/webm")
         user_text, error = process_audio_input(audio_data, suffix=suffix, mime_type=mime_type)
     elif request.is_json:
         body = request.get_json() or {}
@@ -654,6 +664,12 @@ def transcribe_endpoint():
     else:
         return jsonify({"error": "Provide 'audio' file or 'audio_base64' in JSON"}), 400
     if error:
+        if "Audio file might be corrupted or unsupported" in error:
+            return jsonify({
+                "transcribed_text": "",
+                "should_exit":      False,
+                "error":            "",
+            })
         return jsonify({"error": error}), 500
 
     return jsonify({

@@ -55,6 +55,8 @@ const systemResponseFragments = [
   "conversation ended",
 ]
 
+const recorderSegmentMs = 1600
+
 const ignoredCandidatePhrases = [
   "the speaker is speaking english",
   "speaker is speaking english",
@@ -393,6 +395,7 @@ export default function VoiceAgentPage() {
   const httpClientRef = useRef<HTTPClient | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
+  const recorderSegmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isTranscribingChunkRef = useRef(false)
   const pendingChunkRef = useRef<Blob | null>(null)
   const lastCandidateUtteranceRef = useRef<string>("")
@@ -549,6 +552,11 @@ export default function VoiceAgentPage() {
         bargeInWindowTimerRef.current = null
       }
 
+      if (recorderSegmentTimerRef.current) {
+        clearTimeout(recorderSegmentTimerRef.current)
+        recorderSegmentTimerRef.current = null
+      }
+
       if (mediaRecorderRef.current) {
         try {
           if (mediaRecorderRef.current.state !== "inactive") {
@@ -575,6 +583,11 @@ export default function VoiceAgentPage() {
   }, [])
 
   const stopSpeechRecognition = () => {
+    if (recorderSegmentTimerRef.current) {
+      clearTimeout(recorderSegmentTimerRef.current)
+      recorderSegmentTimerRef.current = null
+    }
+
     if (mediaRecorderRef.current) {
       try {
         if (mediaRecorderRef.current.state !== "inactive") {
@@ -685,6 +698,35 @@ export default function VoiceAgentPage() {
     }
   }
 
+  const startRecorderSegment = () => {
+    const recorder = mediaRecorderRef.current
+    if (!recorder) return
+    if (!isCallActiveRef.current || !isMicOnRef.current) return
+    if (isSuppressedByAIRef.current && !isBargeInWindowRef.current) return
+
+    try {
+      if (recorder.state === "inactive") {
+        recorder.start()
+        if (recorderSegmentTimerRef.current) {
+          clearTimeout(recorderSegmentTimerRef.current)
+        }
+        recorderSegmentTimerRef.current = setTimeout(() => {
+          const activeRecorder = mediaRecorderRef.current
+          if (activeRecorder && activeRecorder.state === "recording") {
+            try {
+              activeRecorder.stop()
+            } catch {
+              // ignore stop races when recorder state changes between checks
+            }
+          }
+        }, recorderSegmentMs)
+      }
+    } catch {
+      setIsListening(false)
+      setError("Microphone capture failed. Please re-check microphone permissions.")
+    }
+  }
+
   const startBackendMicCapture = async () => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setSpeechSupported(false)
@@ -714,7 +756,29 @@ export default function VoiceAgentPage() {
     const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
 
     recorder.onstart = () => setIsListening(true)
-    recorder.onstop = () => setIsListening(false)
+    recorder.onstop = () => {
+      if (recorderSegmentTimerRef.current) {
+        clearTimeout(recorderSegmentTimerRef.current)
+        recorderSegmentTimerRef.current = null
+      }
+
+      const streamStillLive =
+        !!mediaStreamRef.current &&
+        mediaStreamRef.current.getTracks().some((track) => track.readyState === "live")
+
+      const canContinue =
+        streamStillLive &&
+        isCallActiveRef.current &&
+        isMicOnRef.current &&
+        (!isSuppressedByAIRef.current || isBargeInWindowRef.current)
+
+      if (canContinue) {
+        startRecorderSegment()
+        return
+      }
+
+      setIsListening(false)
+    }
     recorder.onerror = () => {
       setIsListening(false)
       setError("Microphone capture failed. Please re-check microphone permissions.")
@@ -727,7 +791,7 @@ export default function VoiceAgentPage() {
     }
 
     mediaRecorderRef.current = recorder
-    recorder.start(1500)
+    startRecorderSegment()
   }
 
   const startSpeechRecognition = async () => {

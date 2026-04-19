@@ -81,7 +81,7 @@ export class HTTPClient {
   async transcribeAudio(audioBlob: Blob): Promise<string> {
     try {
       const formData = new FormData()
-      formData.append("audio", audioBlob, "chunk.webm")
+      formData.append("audio", audioBlob, this.getAudioFilename(audioBlob))
 
       const response = await fetch(`${this.serverUrl}/transcribe`, {
         method: "POST",
@@ -95,6 +95,14 @@ export class HTTPClient {
       this.onError(sanitizeError(error))
       throw error
     }
+  }
+
+  private getAudioFilename(audioBlob: Blob): string {
+    const mime = (audioBlob.type || "").toLowerCase().split(";")[0]
+    if (mime === "audio/mp4" || mime === "audio/m4a") return "chunk.m4a"
+    if (mime === "audio/ogg") return "chunk.ogg"
+    if (mime === "audio/wav" || mime === "audio/wave" || mime === "audio/x-wav") return "chunk.wav"
+    return "chunk.webm"
   }
 
   async sendTextMessage(text: string): Promise<void> {
