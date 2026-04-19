@@ -90,6 +90,8 @@ const systemResponseFragments = [
   "conversation ended",
 ]
 
+const MAX_SPEECH_NETWORK_RETRIES = 4
+
 const topicLibrary = [
   {
     label: "Technical depth",
@@ -413,6 +415,9 @@ export default function VoiceAgentPage() {
   const isSuppressedByAIRef = useRef(false)
   const isBargeInWindowRef = useRef(false)
   const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const speechNetworkRetryCountRef = useRef(0)
+  const speechNetworkRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSpeechErrorRef = useRef<string | null>(null)
 
   useEffect(() => {
     isCallActiveRef.current = isCallActive
@@ -570,10 +575,22 @@ export default function VoiceAgentPage() {
         clearTimeout(bargeInTimeoutRef.current)
         bargeInTimeoutRef.current = null
       }
+
+      if (speechNetworkRetryTimerRef.current) {
+        clearTimeout(speechNetworkRetryTimerRef.current)
+        speechNetworkRetryTimerRef.current = null
+      }
     }
   }, [])
 
   const stopSpeechRecognition = () => {
+    if (speechNetworkRetryTimerRef.current) {
+      clearTimeout(speechNetworkRetryTimerRef.current)
+      speechNetworkRetryTimerRef.current = null
+    }
+    speechNetworkRetryCountRef.current = 0
+    lastSpeechErrorRef.current = null
+
     if (!recognitionRef.current) return
 
     try {
@@ -622,10 +639,19 @@ export default function VoiceAgentPage() {
       recognition.interimResults = true
       recognition.lang = "en-US"
 
-      recognition.onstart = () => setIsListening(true)
+      recognition.onstart = () => {
+        setIsListening(true)
+        lastSpeechErrorRef.current = null
+        speechNetworkRetryCountRef.current = 0
+        if (speechNetworkRetryTimerRef.current) {
+          clearTimeout(speechNetworkRetryTimerRef.current)
+          speechNetworkRetryTimerRef.current = null
+        }
+      }
 
       recognition.onend = () => {
         setIsListening(false)
+        if (lastSpeechErrorRef.current === "network") return
 
         // Do NOT auto-restart during lockout — barge-in window timer or onPlaybackEnded will restart
         if (isCallActiveRef.current && isMicOnRef.current && !isSuppressedByAIRef.current) {
@@ -697,6 +723,7 @@ export default function VoiceAgentPage() {
       }
 
       recognition.onerror = (event: SpeechRecognitionErrorLike) => {
+        lastSpeechErrorRef.current = event.error
         speechStartTimeRef.current = 0
         setLiveTranscript("")
 
@@ -706,14 +733,49 @@ export default function VoiceAgentPage() {
         }
 
         // Browsers can emit "aborted" during intentional stop/restart cycles.
-        if (event.error === "no-speech" || event.error === "aborted") return
+        if (event.error === "no-speech" || event.error === "aborted") {
+          lastSpeechErrorRef.current = null
+          return
+        }
 
         if (event.error === "not-allowed" || event.error === "permission-denied") {
           setError("Microphone permission denied.")
         } else if (event.error === "audio-capture") {
           setError("No microphone was found.")
         } else if (event.error === "network") {
-          setError("Speech recognition lost network access. Check your internet connection and try again.")
+          setIsListening(false)
+          speechNetworkRetryCountRef.current += 1
+          const attempt = speechNetworkRetryCountRef.current
+
+          if (attempt <= MAX_SPEECH_NETWORK_RETRIES) {
+            const retryDelayMs = Math.min(4000, 800 * attempt)
+            setError(`Speech recognition lost network access. Reconnecting (${attempt}/${MAX_SPEECH_NETWORK_RETRIES})...`)
+
+            if (speechNetworkRetryTimerRef.current) {
+              clearTimeout(speechNetworkRetryTimerRef.current)
+            }
+
+            speechNetworkRetryTimerRef.current = setTimeout(() => {
+              speechNetworkRetryTimerRef.current = null
+
+              if (
+                recognitionRef.current &&
+                isCallActiveRef.current &&
+                isMicOnRef.current &&
+                !isListeningRef.current &&
+                !isSuppressedByAIRef.current
+              ) {
+                try {
+                  recognitionRef.current.start()
+                } catch {
+                  // retry path will handle follow-up attempts
+                }
+              }
+            }, retryDelayMs)
+          } else {
+            setError("Speech recognition service is unreachable on this network. Try Chrome/Edge without VPN/ad blockers, or switch networks.")
+          }
+          return
         } else if (event.error === "service-not-allowed") {
           setError("Speech recognition service is blocked for this browser profile. Use Chrome or Edge and allow speech services.")
         } else if (event.error === "language-not-supported") {
@@ -735,6 +797,12 @@ export default function VoiceAgentPage() {
     if (!httpClientRef.current || !speechSupported) return
 
     intentionalDisconnectRef.current = false
+    speechNetworkRetryCountRef.current = 0
+    lastSpeechErrorRef.current = null
+    if (speechNetworkRetryTimerRef.current) {
+      clearTimeout(speechNetworkRetryTimerRef.current)
+      speechNetworkRetryTimerRef.current = null
+    }
     setError("")
     setUserSpeech("")
     setAiResponse("")
@@ -778,6 +846,13 @@ export default function VoiceAgentPage() {
       bargeInTimeoutRef.current = null
     }
 
+    if (speechNetworkRetryTimerRef.current) {
+      clearTimeout(speechNetworkRetryTimerRef.current)
+      speechNetworkRetryTimerRef.current = null
+    }
+    speechNetworkRetryCountRef.current = 0
+    lastSpeechErrorRef.current = null
+
     if (isAISpeakingRef.current) {
       await httpClientRef.current?.interrupt()
     }
@@ -799,6 +874,12 @@ export default function VoiceAgentPage() {
   const handleToggleMic = () => {
     const nextMicState = !isMicOn
     setIsMicOn(nextMicState)
+    if (speechNetworkRetryTimerRef.current) {
+      clearTimeout(speechNetworkRetryTimerRef.current)
+      speechNetworkRetryTimerRef.current = null
+    }
+    speechNetworkRetryCountRef.current = 0
+    lastSpeechErrorRef.current = null
 
     if (nextMicState && isCallActive) {
       setTimeout(() => {
