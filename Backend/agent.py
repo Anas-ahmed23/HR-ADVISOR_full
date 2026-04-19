@@ -23,17 +23,20 @@ import sys
 import tempfile
 import threading
 import unicodedata
-import uuid
-import wave
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
 import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from openai import AzureOpenAI
+
+try:
+    from webrtc_bridge import WEBRTC_RUNTIME_AVAILABLE, WebRTCBridge
+except Exception:
+    WEBRTC_RUNTIME_AVAILABLE = False
+    WebRTCBridge = None  # type: ignore[assignment]
 
 # ── Load .env ──────────────────────────────────────────────────────────────
 load_dotenv()
@@ -525,6 +528,31 @@ def generate_response(user_text: str) -> Dict[str, Any]:
         return {"text_response": ai_text or "An error occurred.", "audio_base64": "", "error": err, "interrupted": False}
 
 
+# ------------------------------------------------------------------------------
+# WEBRTC BRIDGE (backend-driven flow)
+# ------------------------------------------------------------------------------
+
+_webrtc_bridge: Optional[WebRTCBridge] = None
+_webrtc_bridge_lock = threading.Lock()
+
+
+def get_webrtc_bridge() -> Optional[WebRTCBridge]:
+    global _webrtc_bridge
+    if not WEBRTC_RUNTIME_AVAILABLE or WebRTCBridge is None:
+        return None
+
+    with _webrtc_bridge_lock:
+        if _webrtc_bridge is None:
+            _webrtc_bridge = WebRTCBridge(
+                transcribe_fn=process_audio_input,
+                llm_fn=llm_reply,
+                tts_fn=synthesize_speech,
+                sanitize_tts_text=sanitize_tts_text,
+                log_fn=log,
+            )
+    return _webrtc_bridge
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # FLASK APP
 # ══════════════════════════════════════════════════════════════════════════════
@@ -536,6 +564,13 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 
 @app.route("/health", methods=["GET"])
 def health_check():
+    bridge = None
+    if WEBRTC_RUNTIME_AVAILABLE:
+        try:
+            bridge = get_webrtc_bridge()
+        except Exception:
+            bridge = None
+
     configured = all([
         AZURE_OPENAI_API_KEY,
         AZURE_OPENAI_ENDPOINT,
@@ -551,12 +586,21 @@ def health_check():
         "stt_available":    bool(AZURE_TRANSCRIBE_API_KEY or AZURE_OPENAI_API_KEY),
         "tts_available":    bool(AZURE_TTS_API_KEY or AZURE_OPENAI_API_KEY),
         "context_loaded":   bool(_context_pack_cache),
+        "webrtc_available": bool(WEBRTC_RUNTIME_AVAILABLE),
+        "webrtc_sessions":  bridge.active_sessions() if bridge else 0,
     }
     return jsonify(payload), (200 if configured else 503)
 
 
 @app.route("/status", methods=["GET"])
 def status():
+    bridge = None
+    if WEBRTC_RUNTIME_AVAILABLE:
+        try:
+            bridge = get_webrtc_bridge()
+        except Exception:
+            bridge = None
+
     return jsonify({
         "server":          "HR Advisor Voice Agent (Azure)",
         "status":          "running",
@@ -565,6 +609,8 @@ def status():
         "tts_deployment":  AZURE_TTS_DEPLOYMENT,
         "tts_voice":       AZURE_TTS_VOICE,
         "context_chars":   len(_context_pack_cache) if _context_pack_cache else 0,
+        "webrtc_available": bool(WEBRTC_RUNTIME_AVAILABLE),
+        "webrtc_sessions":  bridge.active_sessions() if bridge else 0,
     })
 
 
@@ -587,6 +633,82 @@ def interrupt():
         return jsonify({"status": "interrupted", "message": "Audio playback stopped"})
     except Exception as exc:
         return jsonify({"error": f"Interrupt failed: {exc}"}), 500
+
+
+@app.route("/webrtc/connect", methods=["POST"])
+def webrtc_connect():
+    """Create a backend WebRTC session and return SDP answer."""
+    try:
+        bridge = get_webrtc_bridge()
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC init failed: {exc}"}), 500
+    if bridge is None:
+        return jsonify({"error": "WebRTC is unavailable. Install aiortc + av in backend."}), 503
+    if not request.is_json:
+        return jsonify({"error": "JSON content type required"}), 400
+
+    payload = request.get_json() or {}
+    offer_sdp = str(payload.get("sdp") or "").strip()
+    offer_type = str(payload.get("type") or "").strip() or "offer"
+    if not offer_sdp:
+        return jsonify({"error": "Missing SDP offer."}), 400
+
+    try:
+        answer = bridge.create_session(offer_sdp=offer_sdp, offer_type=offer_type)
+        return jsonify(answer)
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC session creation failed: {exc}"}), 500
+
+
+@app.route("/webrtc/session/<session_id>/interrupt", methods=["POST"])
+def webrtc_interrupt(session_id: str):
+    try:
+        bridge = get_webrtc_bridge()
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC init failed: {exc}"}), 500
+    if bridge is None:
+        return jsonify({"error": "WebRTC is unavailable."}), 503
+    try:
+        interrupted = bridge.interrupt_session(session_id)
+        if not interrupted:
+            return jsonify({"error": "Session not found"}), 404
+        return jsonify({"status": "interrupted", "session_id": session_id})
+    except Exception as exc:
+        return jsonify({"error": f"Interrupt failed: {exc}"}), 500
+
+
+@app.route("/webrtc/session/<session_id>/close", methods=["POST"])
+def webrtc_close(session_id: str):
+    try:
+        bridge = get_webrtc_bridge()
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC init failed: {exc}"}), 500
+    if bridge is None:
+        return jsonify({"error": "WebRTC is unavailable."}), 503
+    try:
+        closed = bridge.close_session(session_id)
+        if not closed:
+            return jsonify({"error": "Session not found"}), 404
+        return jsonify({"status": "closed", "session_id": session_id})
+    except Exception as exc:
+        return jsonify({"error": f"Close failed: {exc}"}), 500
+
+
+@app.route("/webrtc/session/<session_id>/status", methods=["GET"])
+def webrtc_session_status(session_id: str):
+    try:
+        bridge = get_webrtc_bridge()
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC init failed: {exc}"}), 500
+    if bridge is None:
+        return jsonify({"error": "WebRTC is unavailable."}), 503
+    try:
+        session = bridge.session_status(session_id)
+        if session is None:
+            return jsonify({"error": "Session not found"}), 404
+        return jsonify(session)
+    except Exception as exc:
+        return jsonify({"error": f"Status query failed: {exc}"}), 500
 
 
 @app.route("/chat", methods=["POST"])
@@ -703,6 +825,7 @@ def initialize() -> None:
     print(f"  LLM : {AZURE_OPENAI_DEPLOYMENT}  ({AZURE_OPENAI_API_VERSION})")
     print(f"  STT : {AZURE_TRANSCRIBE_DEPLOYMENT}  ({AZURE_TRANSCRIBE_API_VERSION})")
     print(f"  TTS : {AZURE_TTS_DEPLOYMENT}  voice={AZURE_TTS_VOICE}")
+    print(f"  WebRTC runtime available: {WEBRTC_RUNTIME_AVAILABLE}")
     print(f"  Host: {SERVER_HOST}:{SERVER_PORT}")
 
     if not AZURE_OPENAI_API_KEY or not AZURE_OPENAI_ENDPOINT:
@@ -724,6 +847,10 @@ def initialize() -> None:
     print("  POST /synthesize      — TTS only")
     print("  GET  /speaking_status — barge-in state")
     print("  POST /interrupt       — barge-in signal")
+    print("  POST /webrtc/connect  — WebRTC SDP answer")
+    print("  POST /webrtc/session/<id>/interrupt — WebRTC barge-in")
+    print("  POST /webrtc/session/<id>/close     — close WebRTC session")
+    print("  GET  /webrtc/session/<id>/status    — WebRTC diagnostics")
     print("======================================\n")
 
 
@@ -734,3 +861,9 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"[FATAL] {exc}")
         sys.exit(1)
+    finally:
+        if _webrtc_bridge is not None:
+            try:
+                _webrtc_bridge.shutdown()
+            except Exception:
+                pass

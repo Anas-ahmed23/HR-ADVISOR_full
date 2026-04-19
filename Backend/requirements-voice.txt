@@ -5,3 +5,5 @@ numpy==1.26.0
 requests==2.31.0
 openai>=1.54.0
 python-dotenv==1.0.0
+aiortc==1.9.0
+av==12.3.0

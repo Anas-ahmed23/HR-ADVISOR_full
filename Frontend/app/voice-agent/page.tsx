@@ -1,6 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
+import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import {
   AlertCircle,
@@ -8,19 +9,17 @@ import {
   Brain,
   CheckCircle2,
   FileText,
+  Lock,
   MessageSquare,
   Mic,
   MicOff,
   PhoneOff,
-  PlayCircle,
   RefreshCw,
   Shield,
   Sparkles,
   Target,
 } from "lucide-react"
 
-import Link from "next/link"
-import { Lock } from "lucide-react"
 import { ProductPanel, ProductShell } from "@/components/product-shell"
 import { WaveformVisualizer } from "@/components/WaveformVisualizer"
 import { Button } from "@/components/ui/button"
@@ -36,6 +35,7 @@ type TranscriptEntry = {
 }
 
 type InsightTone = "violet" | "cyan" | "emerald"
+type VoiceState = "idle" | "listening" | "processing" | "speaking" | "closed"
 
 type SummaryView = {
   overview: string
@@ -43,91 +43,6 @@ type SummaryView = {
   strengths: string[]
   concerns: string[]
   recruiterNotes: string[]
-}
-
-const systemResponseFragments = [
-  "processing your request",
-  "still processing",
-  "connected!",
-  "ready!",
-  "send a message",
-  "disconnected",
-  "conversation ended",
-]
-
-const recorderSegmentMs = 1600
-const utteranceSilenceWindowMs = 2800
-const vadCheckIntervalMs = 120
-const vadSpeechHoldMs = 1400
-const vadMinimumRms = 0.012
-const vadNoiseSmoothing = 0.92
-const vadSpeechMultiplier = 2.4
-const bargeInImmediateMinChars = 4
-
-const ignoredCandidatePhrases = [
-  "the speaker is speaking english",
-  "speaker is speaking english",
-  "speech recognition encountered an issue",
-  "speech recognition lost network access",
-  "speech network diagnostic",
-]
-
-function normalizeTranscriptText(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-}
-
-function shouldIgnoreCandidateUtterance(text: string) {
-  const normalized = normalizeTranscriptText(text)
-  if (!normalized) return true
-  if (normalized.length < 2) return true
-  return ignoredCandidatePhrases.some((phrase) => normalized === phrase || normalized.includes(phrase))
-}
-
-function mergeCandidateUtterances(existingText: string, incomingText: string) {
-  const existing = existingText.trim()
-  const incoming = incomingText.trim()
-  if (!existing) return incoming
-  if (!incoming) return existing
-
-  const existingNormalized = normalizeTranscriptText(existing)
-  const incomingNormalized = normalizeTranscriptText(incoming)
-  if (!incomingNormalized) return existing
-  if (existingNormalized === incomingNormalized) return existing
-  if (incomingNormalized.startsWith(existingNormalized)) return incoming
-  if (existingNormalized.endsWith(incomingNormalized) || existingNormalized.endsWith(` ${incomingNormalized}`)) {
-    return existing
-  }
-  return `${existing} ${incoming}`.trim()
-}
-
-function hasSubstantiveSpeech(text: string) {
-  const normalized = normalizeTranscriptText(text)
-  if (!normalized || normalized.length < bargeInImmediateMinChars) return false
-  const words = normalized.split(" ").filter(Boolean)
-  if (!words.length) return false
-  return /[a-z]/i.test(normalized)
-}
-
-function isLikelyAIEcho(transcribedText: string, aiText: string) {
-  const transcribed = normalizeTranscriptText(transcribedText)
-  const ai = normalizeTranscriptText(aiText)
-  if (!transcribed || !ai) return false
-  if (ai.includes(transcribed) && transcribed.length >= 4) return true
-
-  const transcribedTokens = new Set(transcribed.split(" ").filter((token) => token.length > 2))
-  const aiTokens = new Set(ai.split(" ").filter((token) => token.length > 2))
-  if (!transcribedTokens.size || !aiTokens.size) return false
-
-  let overlap = 0
-  for (const token of transcribedTokens) {
-    if (aiTokens.has(token)) overlap += 1
-  }
-  const overlapRatio = overlap / Math.max(1, transcribedTokens.size)
-  return overlapRatio >= 0.7
 }
 
 const topicLibrary = [
@@ -156,7 +71,6 @@ function formatDuration(milliseconds: number) {
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
 }
 
-
 function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length
 }
@@ -168,7 +82,7 @@ function extractTopics(entries: TranscriptEntry[]) {
     .map((topic) => topic.label)
 }
 
-function getSummary(entries: TranscriptEntry[], durationMs: number): SummaryView {
+function getSummary(entries: TranscriptEntry[]): SummaryView {
   const candidateTurns = entries.filter((entry) => entry.speaker === "Candidate")
   const aiTurns = entries.filter((entry) => entry.speaker === "AI")
   const candidateWordCount = candidateTurns.reduce((total, entry) => total + countWords(entry.text), 0)
@@ -192,7 +106,7 @@ function getSummary(entries: TranscriptEntry[], durationMs: number): SummaryView
       concerns: ["Insufficient evidence to assess communication or role fit signals."],
       recruiterNotes: [
         "Confirm microphone access and backend connectivity.",
-        "Use the transcript tab to verify capture quality during the call.",
+        "Speak in a quiet room and avoid speaker feedback.",
       ],
     }
   }
@@ -209,7 +123,7 @@ function getSummary(entries: TranscriptEntry[], durationMs: number): SummaryView
   const concerns = [
     averageCandidateLength < 9
       ? "Candidate responses were brief; schedule follow-up questions for deeper evidence."
-      : "Review transcript for depth against the specific role scorecard.",
+      : "Review transcript depth against the specific role scorecard.",
   ]
 
   if (!topics.includes("Technical depth")) {
@@ -218,11 +132,11 @@ function getSummary(entries: TranscriptEntry[], durationMs: number): SummaryView
 
   const recommendation =
     candidateTurns.length >= 3 && strongVerbHits >= 2
-      ? "Review the transcript and advance if role-specific requirements match the captured examples."
+      ? "Review transcript and advance if role-specific requirements match captured examples."
       : "Keep the candidate in review and run a deeper follow-up on missing role signals."
 
   return {
-    overview: `Captured ${candidateTurns.length} candidate responses and ${aiTurns.length} assistant prompts. The session produced structured transcript context for recruiter review.`,
+    overview: `Captured ${candidateTurns.length} candidate responses and ${aiTurns.length} assistant prompts for recruiter review.`,
     recommendation,
     strengths,
     concerns,
@@ -308,7 +222,7 @@ function getStatusView(params: {
   if (params.isConnecting) {
     return {
       label: "Connecting",
-      description: "Checking backend health and preparing microphone capture.",
+      description: "Opening WebRTC session and microphone stream.",
       badgeClassName: "border-violet-400/20 bg-violet-400/10 text-violet-200",
     }
   }
@@ -316,7 +230,7 @@ function getStatusView(params: {
   if (params.isProcessing) {
     return {
       label: "Processing",
-      description: "The assistant is generating a response and updating the session.",
+      description: "The assistant is generating a response from the latest utterance.",
       badgeClassName: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
     }
   }
@@ -324,7 +238,7 @@ function getStatusView(params: {
   if (params.isAISpeaking) {
     return {
       label: "AI speaking",
-      description: "Audio playback is active. Candidate speech can interrupt when needed.",
+      description: "Audio playback is active.",
       badgeClassName: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
     }
   }
@@ -332,7 +246,7 @@ function getStatusView(params: {
   if (params.isCallActive && params.isListening && params.isMicOn) {
     return {
       label: "Listening",
-      description: "Transcript capture is live and ready for candidate responses.",
+      description: "Backend VAD/STT is active and ready for candidate responses.",
       badgeClassName: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
     }
   }
@@ -340,7 +254,7 @@ function getStatusView(params: {
   if (params.isCallActive && !params.isMicOn) {
     return {
       label: "Mic paused",
-      description: "The session is open, but microphone capture is temporarily disabled.",
+      description: "Session is open, but local microphone is muted.",
       badgeClassName: "border-white/15 bg-white/[0.06] text-white/70",
     }
   }
@@ -348,14 +262,14 @@ function getStatusView(params: {
   if (params.hasCompletedSession) {
     return {
       label: "Conversation ended",
-      description: "Review the transcript, insights, and summary panels.",
+      description: "Review transcript, insights, and summary.",
       badgeClassName: "border-white/15 bg-white/[0.06] text-white/75",
     }
   }
 
   return {
     label: "Ready",
-    description: "Start a new AI interview session when you are ready to capture the conversation.",
+    description: "Start a new AI interview session when you are ready.",
     badgeClassName: "border-white/15 bg-white/[0.06] text-white/75",
   }
 }
@@ -364,28 +278,6 @@ function MetaBadge({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/60">
       {children}
-    </div>
-  )
-}
-
-function WorkflowStep({
-  label,
-  state,
-}: {
-  label: string
-  state: "complete" | "current" | "upcoming"
-}) {
-  const stateClasses =
-    state === "complete"
-      ? "border-emerald-400/25 bg-emerald-400/12 text-emerald-200"
-      : state === "current"
-        ? "border-violet-400/25 bg-violet-400/12 text-violet-200"
-        : "border-white/10 bg-white/[0.03] text-white/45"
-
-  return (
-    <div className={`rounded-2xl border px-4 py-3 text-sm ${stateClasses}`}>
-      <div className="text-[11px] uppercase tracking-[0.2em] opacity-70">Stage</div>
-      <div className="mt-2 font-medium">{label}</div>
     </div>
   )
 }
@@ -422,6 +314,8 @@ function InsightCard({
 
 export default function VoiceAgentPage() {
   const { isComplete } = useAnalysis()
+  const voiceServerUrl = process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000"
+
   const [userSpeech, setUserSpeech] = useState("")
   const [aiResponse, setAiResponse] = useState("")
   const [isConnected, setIsConnected] = useState(false)
@@ -439,39 +333,13 @@ export default function VoiceAgentPage() {
   const [sessionEndedAt, setSessionEndedAt] = useState<number | null>(null)
   const [hasCompletedSession, setHasCompletedSession] = useState(false)
   const [clockTick, setClockTick] = useState(Date.now())
-  const voiceServerUrl = process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000"
 
-  const httpClientRef = useRef<HTTPClient | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const mediaStreamRef = useRef<MediaStream | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null)
-  const vadBufferRef = useRef<Float32Array | null>(null)
-  const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lastVoiceActivityAtRef = useRef(0)
-  const vadNoiseFloorRef = useRef(vadMinimumRms)
-  const vadEnabledRef = useRef(false)
-  const recorderSegmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isTranscribingChunkRef = useRef(false)
-  const pendingChunkRef = useRef<Blob | null>(null)
-  const pendingCandidateUtteranceRef = useRef("")
-  const pendingCandidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastCandidateUtteranceRef = useRef<string>("")
-  const lastCandidateUtteranceAtRef = useRef<number>(0)
-  const bargeInTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clientRef = useRef<HTTPClient | null>(null)
+  const intentionalDisconnectRef = useRef(false)
   const isCallActiveRef = useRef(false)
   const isMicOnRef = useRef(true)
-  const isListeningRef = useRef(false)
-  const isProcessingRef = useRef(false)
-  const isAISpeakingRef = useRef(false)
-  const isBargeInInFlightRef = useRef(false)
-  const isAwaitingResponseRef = useRef(false)
-  const intentionalDisconnectRef = useRef(false)
-  const isSuppressedByAIRef = useRef(false)
-  const isBargeInWindowRef = useRef(false)
-  const lastAIUtteranceRef = useRef("")
-  const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastCandidateTextRef = useRef("")
+  const lastCandidateAtRef = useRef(0)
 
   useEffect(() => {
     isCallActiveRef.current = isCallActive
@@ -482,24 +350,10 @@ export default function VoiceAgentPage() {
   }, [isMicOn])
 
   useEffect(() => {
-    isListeningRef.current = isListening
-  }, [isListening])
-
-  useEffect(() => {
-    isProcessingRef.current = isProcessing
-  }, [isProcessing])
-
-  useEffect(() => {
-    isAISpeakingRef.current = isAISpeaking
-  }, [isAISpeaking])
-
-  useEffect(() => {
     if (!sessionStartedAt || sessionEndedAt) return
-
     const interval = setInterval(() => {
       setClockTick(Date.now())
     }, 1000)
-
     return () => clearInterval(interval)
   }, [sessionEndedAt, sessionStartedAt])
 
@@ -507,7 +361,6 @@ export default function VoiceAgentPage() {
     const appendTranscriptEntry = (speaker: TranscriptEntry["speaker"], text: string) => {
       const trimmed = text.trim()
       if (!trimmed) return
-
       setTranscriptEntries((current) => [
         ...current,
         {
@@ -519,574 +372,76 @@ export default function VoiceAgentPage() {
       ])
     }
 
-    httpClientRef.current = new HTTPClient({
+    clientRef.current = new HTTPClient({
       serverUrl: voiceServerUrl,
-      onPlaybackEnded: () => {
-        if (intentionalDisconnectRef.current || !isCallActiveRef.current) return
-        if (bargeInWindowTimerRef.current) {
-          clearTimeout(bargeInWindowTimerRef.current)
-          bargeInWindowTimerRef.current = null
-        }
-        isSuppressedByAIRef.current = false
-        isBargeInWindowRef.current = false
-        isAwaitingResponseRef.current = false
-        setIsProcessing(false)
-        setIsAISpeaking(false)
-        clearPendingCandidateUtterance()
-        // AI finished naturally — short pause for echo tail, then resume mic
-        setTimeout(() => {
-          if (
-            isCallActiveRef.current &&
-            isMicOnRef.current &&
-            !isAISpeakingRef.current &&
-            !isAwaitingResponseRef.current &&
-            !isProcessingRef.current
-          ) {
-            void startSpeechRecognition()
-          }
-        }, 400)
-      },
-      onAIResponse: (response: string) => {
-        if (intentionalDisconnectRef.current) return
-        const normalized = response.toLowerCase()
-
+      onAIResponse: (response) => {
+        if (!response.trim()) return
         setAiResponse(response)
-
-        if (normalized.includes("processing your request") || normalized.includes("still processing")) {
-          setIsProcessing(true)
-          setIsAISpeaking(false)
-          return
-        }
-
-        if (normalized.includes("connected!") || normalized.includes("ready!") || normalized.includes("send a message")) {
-          setIsProcessing(false)
-          setIsAISpeaking(false)
-          return
-        }
-
-        if (!isCallActiveRef.current) return
-
-        isAwaitingResponseRef.current = false
-        clearPendingCandidateUtterance()
-        setIsProcessing(false)
-        setIsAISpeaking(true)
-        isSuppressedByAIRef.current = true
-        isBargeInWindowRef.current = false
-        stopSpeechRecognition()
-
-        // Phase 1: lockout (1500ms) — mic is off so AI voice can't echo into recognition
-        // Phase 2: watchdog — mic re-enables so the user CAN barge in
-        if (bargeInWindowTimerRef.current) clearTimeout(bargeInWindowTimerRef.current)
-        bargeInWindowTimerRef.current = setTimeout(() => {
-          bargeInWindowTimerRef.current = null
-          if (isAISpeakingRef.current && isCallActiveRef.current && isMicOnRef.current) {
-            isSuppressedByAIRef.current = false
-            isBargeInWindowRef.current = true
-            void startSpeechRecognition()
-          }
-        }, 1500)
-
-        if (!systemResponseFragments.some((fragment) => normalized.includes(fragment))) {
-          lastAIUtteranceRef.current = response
-          appendTranscriptEntry("AI", response)
-        }
+        appendTranscriptEntry("AI", response)
       },
-      onConnectionChange: (connected: boolean) => {
+      onCandidateTranscription: (text) => {
+        const trimmed = text.trim()
+        if (!trimmed) return
+
+        const now = Date.now()
+        const normalized = trimmed.toLowerCase().replace(/\s+/g, " ").trim()
+        if (normalized === lastCandidateTextRef.current && now - lastCandidateAtRef.current < 2000) {
+          return
+        }
+
+        lastCandidateTextRef.current = normalized
+        lastCandidateAtRef.current = now
+        setUserSpeech(trimmed)
+        appendTranscriptEntry("Candidate", trimmed)
+      },
+      onStateChange: (state: VoiceState) => {
+        setIsProcessing(state === "processing")
+        setIsAISpeaking(state === "speaking")
+        setIsListening(state === "listening" && isCallActiveRef.current && isMicOnRef.current)
+      },
+      onPlaybackEnded: () => {
+        setIsAISpeaking(false)
+      },
+      onConnectionChange: (connected) => {
         setIsConnected(connected)
         setIsCallActive(connected)
-        setIsProcessing(false)
-        setIsAISpeaking(false)
-        isAwaitingResponseRef.current = false
-        isSuppressedByAIRef.current = false
-        isBargeInWindowRef.current = false
-        lastAIUtteranceRef.current = ""
-        clearPendingCandidateUtterance()
-
-        if (connected) {
-          intentionalDisconnectRef.current = false
-          setError("")
-          return
-        }
-
-        if (!intentionalDisconnectRef.current) {
-          setError((current) => current || "Disconnected from the voice server.")
+        if (!connected) {
+          setIsListening(false)
+          setIsProcessing(false)
+          setIsAISpeaking(false)
+          if (!intentionalDisconnectRef.current) {
+            setError((current) => current || "Disconnected from the voice server.")
+          }
         }
       },
-      onError: (errorMessage: string) => {
-        if (!errorMessage.toLowerCase().includes("disconnected")) {
-          setError(errorMessage)
-        }
-        isAwaitingResponseRef.current = false
-        isSuppressedByAIRef.current = false
-        isBargeInWindowRef.current = false
-        lastAIUtteranceRef.current = ""
-        setIsProcessing(false)
-        setIsAISpeaking(false)
+      onError: (message) => {
+        if (intentionalDisconnectRef.current) return
+        setError(message)
       },
     })
 
     if (typeof window !== "undefined") {
-      const hasMediaRecorder = typeof MediaRecorder !== "undefined"
-      const hasGetUserMedia = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia
-
-      if (!hasMediaRecorder || !hasGetUserMedia) {
+      const hasGetUserMedia = !!navigator.mediaDevices?.getUserMedia
+      const hasWebRTC = typeof RTCPeerConnection !== "undefined"
+      if (!hasGetUserMedia || !hasWebRTC) {
         setSpeechSupported(false)
-        setError("Microphone capture is not supported in this browser.")
+        setError("This browser does not support WebRTC microphone sessions.")
       }
     }
 
     return () => {
-      httpClientRef.current?.disconnect()
-
-      if (bargeInWindowTimerRef.current) {
-        clearTimeout(bargeInWindowTimerRef.current)
-        bargeInWindowTimerRef.current = null
-      }
-
-      if (recorderSegmentTimerRef.current) {
-        clearTimeout(recorderSegmentTimerRef.current)
-        recorderSegmentTimerRef.current = null
-      }
-
-      if (mediaRecorderRef.current) {
-        try {
-          if (mediaRecorderRef.current.state !== "inactive") {
-            mediaRecorderRef.current.stop()
-          }
-        } catch {
-          // ignore cleanup stop errors
-        }
-        mediaRecorderRef.current = null
-      }
-
-      if (mediaStreamRef.current) {
-        for (const track of mediaStreamRef.current.getTracks()) {
-          track.stop()
-        }
-        mediaStreamRef.current = null
-      }
-      stopVoiceActivityMonitor()
-
-      if (bargeInTimeoutRef.current) {
-        clearTimeout(bargeInTimeoutRef.current)
-        bargeInTimeoutRef.current = null
-      }
-
-      if (pendingCandidateTimerRef.current) {
-        clearTimeout(pendingCandidateTimerRef.current)
-        pendingCandidateTimerRef.current = null
-      }
-      pendingCandidateUtteranceRef.current = ""
-      isAwaitingResponseRef.current = false
+      intentionalDisconnectRef.current = true
+      clientRef.current?.disconnect()
     }
-  }, [])
-
-  const stopSpeechRecognition = () => {
-    if (recorderSegmentTimerRef.current) {
-      clearTimeout(recorderSegmentTimerRef.current)
-      recorderSegmentTimerRef.current = null
-    }
-
-    if (mediaRecorderRef.current) {
-      try {
-        if (mediaRecorderRef.current.state !== "inactive") {
-          mediaRecorderRef.current.stop()
-        }
-      } catch {
-        // ignore repeated stop calls from browsers that reject them
-      }
-      mediaRecorderRef.current = null
-    }
-
-    if (mediaStreamRef.current) {
-      for (const track of mediaStreamRef.current.getTracks()) {
-        track.stop()
-      }
-      mediaStreamRef.current = null
-    }
-    stopVoiceActivityMonitor()
-
-    pendingChunkRef.current = null
-    isTranscribingChunkRef.current = false
-    setIsListening(false)
-  }
-
-  const clearPendingCandidateUtterance = () => {
-    if (pendingCandidateTimerRef.current) {
-      clearTimeout(pendingCandidateTimerRef.current)
-      pendingCandidateTimerRef.current = null
-    }
-    pendingCandidateUtteranceRef.current = ""
-  }
-
-  const stopVoiceActivityMonitor = () => {
-    if (vadTimerRef.current) {
-      clearInterval(vadTimerRef.current)
-      vadTimerRef.current = null
-    }
-
-    if (sourceNodeRef.current) {
-      try {
-        sourceNodeRef.current.disconnect()
-      } catch {
-        // ignore disconnect races during teardown
-      }
-      sourceNodeRef.current = null
-    }
-
-    if (analyserRef.current) {
-      try {
-        analyserRef.current.disconnect()
-      } catch {
-        // ignore disconnect races during teardown
-      }
-      analyserRef.current = null
-    }
-
-    if (audioContextRef.current) {
-      try {
-        void audioContextRef.current.close()
-      } catch {
-        // ignore close errors when context is already closed
-      }
-      audioContextRef.current = null
-    }
-
-    vadBufferRef.current = null
-    lastVoiceActivityAtRef.current = 0
-    vadNoiseFloorRef.current = vadMinimumRms
-    vadEnabledRef.current = false
-  }
-
-  const hasRecentVoiceActivity = () => {
-    if (!vadEnabledRef.current) return true
-    const elapsed = Date.now() - lastVoiceActivityAtRef.current
-    return elapsed >= 0 && elapsed <= vadSpeechHoldMs
-  }
-
-  const startVoiceActivityMonitor = async (stream: MediaStream) => {
-    stopVoiceActivityMonitor()
-
-    if (typeof window === "undefined" || typeof window.AudioContext === "undefined") {
-      vadEnabledRef.current = false
-      return
-    }
-    try {
-      const context = new window.AudioContext()
-      const source = context.createMediaStreamSource(stream)
-      const analyser = context.createAnalyser()
-      analyser.fftSize = 2048
-      analyser.smoothingTimeConstant = 0.2
-      source.connect(analyser)
-
-      audioContextRef.current = context
-      sourceNodeRef.current = source
-      analyserRef.current = analyser
-      vadBufferRef.current = new Float32Array(analyser.fftSize)
-      lastVoiceActivityAtRef.current = 0
-      vadNoiseFloorRef.current = vadMinimumRms
-      vadEnabledRef.current = true
-
-      vadTimerRef.current = setInterval(() => {
-        const activeAnalyser = analyserRef.current
-        const buffer = vadBufferRef.current
-        if (!activeAnalyser || !buffer) return
-
-        activeAnalyser.getFloatTimeDomainData(buffer as Float32Array<ArrayBuffer>)
-        let sumSquares = 0
-        for (let i = 0; i < buffer.length; i += 1) {
-          const sample = buffer[i]
-          sumSquares += sample * sample
-        }
-        const rms = Math.sqrt(sumSquares / buffer.length)
-        const currentNoiseFloor = vadNoiseFloorRef.current
-        if (rms < currentNoiseFloor * 1.6) {
-          vadNoiseFloorRef.current = currentNoiseFloor * vadNoiseSmoothing + rms * (1 - vadNoiseSmoothing)
-        }
-
-        const threshold = Math.max(vadMinimumRms, vadNoiseFloorRef.current * vadSpeechMultiplier)
-        if (rms >= threshold) {
-          lastVoiceActivityAtRef.current = Date.now()
-        }
-      }, vadCheckIntervalMs)
-    } catch {
-      // If WebAudio VAD isn't available, don't block transcription.
-      vadEnabledRef.current = false
-    }
-  }
-
-  const handleBargeIn = async () => {
-    if (isBargeInInFlightRef.current) return
-    isBargeInInFlightRef.current = true
-
-    // Kill the lockout timer so it doesn't restart mic on top of us
-    if (bargeInWindowTimerRef.current) {
-      clearTimeout(bargeInWindowTimerRef.current)
-      bargeInWindowTimerRef.current = null
-    }
-    httpClientRef.current?.stopAudioPlayback()
-    void httpClientRef.current?.interrupt()
-    isSuppressedByAIRef.current = false
-    isBargeInWindowRef.current = false
-    setIsProcessing(false)
-    setIsAISpeaking(false)
-    setAiResponse("")
-
-    if (bargeInTimeoutRef.current) {
-      clearTimeout(bargeInTimeoutRef.current)
-      bargeInTimeoutRef.current = null
-    }
-
-    isBargeInInFlightRef.current = false
-  }
-
-  const processCandidateUtterance = async (text: string) => {
-    const finalMessage = text.trim()
-    if (!finalMessage || !isMicOnRef.current || !isCallActiveRef.current) return
-    if (isAwaitingResponseRef.current || isProcessingRef.current) return
-    if (shouldIgnoreCandidateUtterance(finalMessage)) return
-
-    const normalized = normalizeTranscriptText(finalMessage)
-    const now = Date.now()
-    if (normalized === lastCandidateUtteranceRef.current && now - lastCandidateUtteranceAtRef.current < 2200) {
-      return
-    }
-    lastCandidateUtteranceRef.current = normalized
-    lastCandidateUtteranceAtRef.current = now
-
-    if (isAISpeakingRef.current && isMicOnRef.current) {
-      await handleBargeIn()
-    }
-
-    clearPendingCandidateUtterance()
-    setUserSpeech(finalMessage)
-    setTranscriptEntries((current) => [
-      ...current,
-      {
-        id: `candidate-${Date.now()}-${current.length}`,
-        speaker: "Candidate",
-        text: finalMessage,
-        timestamp: Date.now(),
-      },
-    ])
-
-    if (bargeInTimeoutRef.current) {
-      clearTimeout(bargeInTimeoutRef.current)
-      bargeInTimeoutRef.current = null
-    }
-
-    isAwaitingResponseRef.current = true
-    setIsProcessing(true)
-    isSuppressedByAIRef.current = true
-    isBargeInWindowRef.current = false
-    stopSpeechRecognition()
-
-    void httpClientRef.current
-      ?.sendTextMessage(finalMessage)
-      .catch(() => {
-        setError("Failed to send your message. Please check the voice server is running.")
-      })
-      .finally(() => {
-        isAwaitingResponseRef.current = false
-        if (!isCallActiveRef.current || !isMicOnRef.current || intentionalDisconnectRef.current) return
-        if (!isAISpeakingRef.current) {
-          setIsProcessing(false)
-          isSuppressedByAIRef.current = false
-          isBargeInWindowRef.current = false
-          void startSpeechRecognition()
-        }
-      })
-  }
-
-  const flushPendingCandidateUtterance = async () => {
-    pendingCandidateTimerRef.current = null
-    const combinedUtterance = pendingCandidateUtteranceRef.current.trim()
-    if (!combinedUtterance) return
-    if (!isCallActiveRef.current || !isMicOnRef.current) {
-      clearPendingCandidateUtterance()
-      return
-    }
-    if (isAwaitingResponseRef.current || isProcessingRef.current) {
-      pendingCandidateTimerRef.current = setTimeout(() => {
-        void flushPendingCandidateUtterance()
-      }, utteranceSilenceWindowMs)
-      return
-    }
-
-    pendingCandidateUtteranceRef.current = ""
-    await processCandidateUtterance(combinedUtterance)
-  }
-
-  const queueCandidateUtteranceChunk = (text: string) => {
-    const chunk = text.trim()
-    if (!chunk || shouldIgnoreCandidateUtterance(chunk)) return
-    if (!isCallActiveRef.current || !isMicOnRef.current) return
-    if (isProcessingRef.current && !isAISpeakingRef.current) return
-
-    const merged = mergeCandidateUtterances(pendingCandidateUtteranceRef.current, chunk)
-    pendingCandidateUtteranceRef.current = merged
-
-    if (pendingCandidateTimerRef.current) {
-      clearTimeout(pendingCandidateTimerRef.current)
-    }
-    pendingCandidateTimerRef.current = setTimeout(() => {
-      void flushPendingCandidateUtterance()
-    }, utteranceSilenceWindowMs)
-  }
-
-  const processAudioChunk = async (audioChunk: Blob) => {
-    if (!httpClientRef.current || !isCallActiveRef.current || !isMicOnRef.current) return
-    if (audioChunk.size < 2048) return
-    if (isProcessingRef.current && !isAISpeakingRef.current) return
-    if (!hasRecentVoiceActivity()) return
-
-    if (isTranscribingChunkRef.current) {
-      pendingChunkRef.current = audioChunk
-      return
-    }
-
-    isTranscribingChunkRef.current = true
-    try {
-      const text = await httpClientRef.current.transcribeAudio(audioChunk)
-      if (!text || shouldIgnoreCandidateUtterance(text)) return
-      const echoRiskActive = isAISpeakingRef.current || isSuppressedByAIRef.current || isBargeInWindowRef.current
-      if (echoRiskActive && isLikelyAIEcho(text, lastAIUtteranceRef.current)) return
-
-      if (
-        isAISpeakingRef.current &&
-        isBargeInWindowRef.current &&
-        hasSubstantiveSpeech(text) &&
-        !isBargeInInFlightRef.current
-      ) {
-        await handleBargeIn()
-      }
-
-      queueCandidateUtteranceChunk(text)
-    } catch {
-      // HTTPClient.onError already maps and surfaces the network/backend issue.
-    } finally {
-      isTranscribingChunkRef.current = false
-      if (pendingChunkRef.current) {
-        const pending = pendingChunkRef.current
-        pendingChunkRef.current = null
-        void processAudioChunk(pending)
-      }
-    }
-  }
-
-  const startRecorderSegment = () => {
-    const recorder = mediaRecorderRef.current
-    if (!recorder) return
-    if (!isCallActiveRef.current || !isMicOnRef.current) return
-    if (isSuppressedByAIRef.current && !isBargeInWindowRef.current) return
-
-    try {
-      if (recorder.state === "inactive") {
-        recorder.start()
-        if (recorderSegmentTimerRef.current) {
-          clearTimeout(recorderSegmentTimerRef.current)
-        }
-        recorderSegmentTimerRef.current = setTimeout(() => {
-          const activeRecorder = mediaRecorderRef.current
-          if (activeRecorder && activeRecorder.state === "recording") {
-            try {
-              activeRecorder.stop()
-            } catch {
-              // ignore stop races when recorder state changes between checks
-            }
-          }
-        }, recorderSegmentMs)
-      }
-    } catch {
-      setIsListening(false)
-      setError("Microphone capture failed. Please re-check microphone permissions.")
-    }
-  }
-
-  const startBackendMicCapture = async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setSpeechSupported(false)
-      setError("Microphone capture is not supported in this browser.")
-      return
-    }
-
-    if (isListeningRef.current) {
-      stopSpeechRecognition()
-      await new Promise((resolve) => setTimeout(resolve, 200))
-    }
-
-    setError("")
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    })
-    mediaStreamRef.current = stream
-    await startVoiceActivityMonitor(stream)
-
-    const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
-    const mimeType = mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate))
-    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
-
-    recorder.onstart = () => setIsListening(true)
-    recorder.onstop = () => {
-      if (recorderSegmentTimerRef.current) {
-        clearTimeout(recorderSegmentTimerRef.current)
-        recorderSegmentTimerRef.current = null
-      }
-
-      const streamStillLive =
-        !!mediaStreamRef.current &&
-        mediaStreamRef.current.getTracks().some((track) => track.readyState === "live")
-
-      const canContinue =
-        streamStillLive &&
-        isCallActiveRef.current &&
-        isMicOnRef.current &&
-        (!isSuppressedByAIRef.current || isBargeInWindowRef.current)
-
-      if (canContinue) {
-        startRecorderSegment()
-        return
-      }
-
-      setIsListening(false)
-    }
-    recorder.onerror = () => {
-      setIsListening(false)
-      setError("Microphone capture failed. Please re-check microphone permissions.")
-    }
-    recorder.ondataavailable = (event) => {
-      if (!event.data || event.data.size === 0) return
-      if (!isCallActiveRef.current || !isMicOnRef.current) return
-      if (isSuppressedByAIRef.current && !isBargeInWindowRef.current) return
-      void processAudioChunk(event.data)
-    }
-
-    mediaRecorderRef.current = recorder
-    startRecorderSegment()
-  }
-
-  const startSpeechRecognition = async () => {
-    if (isProcessingRef.current && !isAISpeakingRef.current) return
-    if (!isMicOnRef.current) return
-    try {
-      await startBackendMicCapture()
-    } catch {
-      setError("Could not start microphone capture. Please check permissions and try again.")
-    }
-  }
+  }, [voiceServerUrl])
 
   const handleStartListening = async () => {
-    if (!httpClientRef.current || !speechSupported) return
+    if (!clientRef.current || !speechSupported) return
 
     intentionalDisconnectRef.current = false
-    isAwaitingResponseRef.current = false
-    lastAIUtteranceRef.current = ""
-    clearPendingCandidateUtterance()
+    lastCandidateTextRef.current = ""
+    lastCandidateAtRef.current = 0
+
     setError("")
     setUserSpeech("")
     setAiResponse("")
@@ -1095,59 +450,34 @@ export default function VoiceAgentPage() {
     setIsConnecting(true)
     setIsProcessing(false)
     setIsAISpeaking(false)
+    setIsListening(false)
     setHasCompletedSession(false)
     setSessionStartedAt(null)
     setSessionEndedAt(null)
     setActiveTab("transcript")
 
     try {
-      await httpClientRef.current.connect()
+      await clientRef.current.connect()
       setSessionStartedAt(Date.now())
       setClockTick(Date.now())
-      await startSpeechRecognition()
+      setIsListening(true)
     } catch {
-      setError("Unable to connect to the voice server. Make sure the backend is running and try again.")
+      setError("Unable to connect to the voice backend. Ensure backend and tunnel are running.")
     } finally {
       setIsConnecting(false)
     }
   }
 
-  const handleEndCall = async () => {
+  const handleEndCall = () => {
     intentionalDisconnectRef.current = true
-    isCallActiveRef.current = false
-    isMicOnRef.current = false
-    isAwaitingResponseRef.current = false
-    lastAIUtteranceRef.current = ""
-    clearPendingCandidateUtterance()
-
-    const shouldInterruptBackend = isAISpeakingRef.current || isProcessingRef.current
-
-    if (bargeInWindowTimerRef.current) {
-      clearTimeout(bargeInWindowTimerRef.current)
-      bargeInWindowTimerRef.current = null
-    }
-    isSuppressedByAIRef.current = true
-    isBargeInWindowRef.current = false
-
-    if (bargeInTimeoutRef.current) {
-      clearTimeout(bargeInTimeoutRef.current)
-      bargeInTimeoutRef.current = null
-    }
-
-    httpClientRef.current?.stopAudioPlayback()
-    stopSpeechRecognition()
-    httpClientRef.current?.disconnect()
-
-    if (shouldInterruptBackend) {
-      void httpClientRef.current?.interrupt()
-    }
+    clientRef.current?.disconnect()
 
     setIsConnected(false)
-    setIsAISpeaking(false)
-    setIsProcessing(false)
     setIsCallActive(false)
+    setIsListening(false)
+    setIsProcessing(false)
+    setIsAISpeaking(false)
     setIsMicOn(false)
-    setIsConnecting(false)
     setSessionEndedAt(Date.now())
     setHasCompletedSession(true)
     setActiveTab("summary")
@@ -1156,23 +486,11 @@ export default function VoiceAgentPage() {
   const handleToggleMic = () => {
     const nextMicState = !isMicOn
     setIsMicOn(nextMicState)
-
-    if (nextMicState && isCallActive) {
-      setTimeout(() => {
-        // During AI lockout phase, skip — the lockout timer will restart mic when safe
-        if (!isSuppressedByAIRef.current) {
-          void startSpeechRecognition()
-        }
-      }, 300)
-      return
-    }
-
-    stopSpeechRecognition()
-    clearPendingCandidateUtterance()
-
-    if (bargeInTimeoutRef.current) {
-      clearTimeout(bargeInTimeoutRef.current)
-      bargeInTimeoutRef.current = null
+    clientRef.current?.setMicEnabled(nextMicState)
+    if (!nextMicState) {
+      setIsListening(false)
+    } else if (isCallActive && !isProcessing && !isAISpeaking) {
+      setIsListening(true)
     }
   }
 
@@ -1186,8 +504,9 @@ export default function VoiceAgentPage() {
     isMicOn,
     hasCompletedSession,
   })
+
   const sessionDurationMs = sessionStartedAt ? (sessionEndedAt ?? clockTick) - sessionStartedAt : 0
-  const summary = getSummary(transcriptEntries, sessionDurationMs)
+  const summary = getSummary(transcriptEntries)
   const insights = getInsights(transcriptEntries)
   const candidateTurns = transcriptEntries.filter((entry) => entry.speaker === "Candidate").length
   const aiTurns = transcriptEntries.filter((entry) => entry.speaker === "AI").length
@@ -1201,52 +520,22 @@ export default function VoiceAgentPage() {
         ? "Listening for candidate response."
         : aiResponse || "Session activity will appear here."
 
-  /* ── ACCESS GUARD ── */
   if (!isComplete) {
     return (
       <ProductShell currentPath="/voice-agent">
         <div className="flex min-h-[70vh] items-center justify-center">
           <div className="relative mx-auto w-full max-w-lg">
-            {/* Ambient glow */}
             <div className="pointer-events-none absolute -inset-12 rounded-full bg-violet-500/10 blur-[80px]" />
-
             <div className="relative flex flex-col items-center gap-8 rounded-[28px] border border-white/10 bg-white/[0.03] px-8 py-14 text-center backdrop-blur-sm">
-              {/* Lock icon */}
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06]">
                 <Lock className="h-7 w-7 text-white/40" />
               </div>
-
-              {/* Copy */}
               <div className="space-y-3">
-                <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">
-                  Voice Agent Locked
-                </h2>
+                <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">Voice Agent Locked</h2>
                 <p className="max-w-sm text-sm leading-7 text-white/50">
-                  The AI Voice Agent requires a completed CV analysis to operate.
-                  Run an analysis first to load candidate context and unlock this workspace.
+                  The AI Voice Agent requires a completed CV analysis to operate. Run an analysis first to load candidate context.
                 </p>
               </div>
-
-              {/* Steps */}
-              <div className="w-full space-y-2.5">
-                {[
-                  { n: "01", label: "Upload candidate CV" },
-                  { n: "02", label: "Select a job description" },
-                  { n: "03", label: "Run analysis — Voice Agent unlocks" },
-                ].map(({ n, label }) => (
-                  <div
-                    key={n}
-                    className="flex items-center gap-4 rounded-2xl border border-white/8 bg-white/[0.025] px-5 py-3.5 text-left"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-violet-400/30 bg-violet-400/12 text-[10px] font-bold text-violet-300">
-                      {n}
-                    </span>
-                    <span className="text-sm text-white/65">{label}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* CTA */}
               <Button
                 asChild
                 size="lg"
@@ -1263,8 +552,6 @@ export default function VoiceAgentPage() {
 
   return (
     <ProductShell currentPath="/voice-agent" mainClassName="space-y-8 md:space-y-10">
-
-      {/* ── PAGE HEADER ── */}
       <section>
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-4">
@@ -1272,26 +559,21 @@ export default function VoiceAgentPage() {
               <Sparkles className="h-3.5 w-3.5" />
               Voice interview workspace
             </div>
-            <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
-              AI Voice Agent
-            </h1>
+            <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">AI Voice Agent</h1>
             <p className="max-w-2xl text-base leading-8 text-white/60">
-              Run live AI screening conversations with real-time transcription, interruption support, and recruiter-ready review panels.
+              Fully backend-driven WebRTC session with server-side VAD, transcription, and response generation.
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
-            <div className={`rounded-full border px-4 py-2 text-sm font-medium ${statusView.badgeClassName}`}>
-              {statusView.label}
-            </div>
+            <div className={`rounded-full border px-4 py-2 text-sm font-medium ${statusView.badgeClassName}`}>{statusView.label}</div>
             <div className="flex flex-wrap gap-2">
-              <MetaBadge>Live transcription</MetaBadge>
-              <MetaBadge>Recruiter workflow</MetaBadge>
+              <MetaBadge>WebRTC transport</MetaBadge>
+              <MetaBadge>Backend STT/LLM/TTS</MetaBadge>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── STATS STRIP ── */}
       <section>
         <ProductPanel className="p-3 sm:p-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -1348,14 +630,9 @@ export default function VoiceAgentPage() {
         </ProductPanel>
       </section>
 
-      {/* ── MAIN WORKSPACE ── */}
       <section className="grid gap-6 xl:grid-cols-2">
-
-        {/* LEFT: SESSION CONTROLS */}
         <ProductPanel className="p-5 md:p-6">
           <div className="space-y-5">
-
-            {/* Panel header */}
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs uppercase tracking-[0.22em] text-white/35">Live session</div>
@@ -1366,17 +643,6 @@ export default function VoiceAgentPage() {
               </div>
             </div>
 
-            {/* Workflow steps */}
-            <div className="grid grid-cols-3 gap-2">
-              <WorkflowStep label="Setup" state={sessionStartedAt ? "complete" : "current"} />
-              <WorkflowStep
-                label="Interview"
-                state={isCallActive ? "current" : hasCompletedSession ? "complete" : "upcoming"}
-              />
-              <WorkflowStep label="Review" state={hasCompletedSession ? "current" : "upcoming"} />
-            </div>
-
-            {/* Error */}
             {error && (
               <div className="rounded-[22px] border border-red-400/20 bg-red-400/8 p-4">
                 <div className="flex items-start gap-3">
@@ -1389,72 +655,25 @@ export default function VoiceAgentPage() {
               </div>
             )}
 
-            {/* PRE-SESSION */}
             {!isCallActive && !hasCompletedSession && !isConnecting && (
               <div className="space-y-4">
                 <div className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(122,77,255,0.12),rgba(255,255,255,0.02))] p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-violet-400/20 bg-violet-400/12 text-violet-200">
-                      <PlayCircle className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="text-base font-semibold text-white">Start a guided screening session</div>
-                      <div className="mt-1.5 text-sm leading-6 text-white/55">
-                        HR Advisor opens a live session, captures the conversation in real time, and organizes transcript context for recruiter review.
-                      </div>
-                    </div>
+                  <div className="text-base font-semibold text-white">Start a backend-driven screening session</div>
+                  <div className="mt-1.5 text-sm leading-6 text-white/55">
+                    Browser streams mic audio with WebRTC only. Backend handles segmentation, STT, LLM, and TTS.
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2">
+                  <ul className="mt-4 space-y-2.5 text-xs text-white/52">
                     {[
-                      { title: "1. Connect", description: "Confirm voice backend and mic are ready." },
-                      { title: "2. Interview", description: "Speak naturally while transcript updates live." },
-                      { title: "3. Review", description: "Use transcript and summary panels post-call." },
+                      "No frontend MediaRecorder chunking or local VAD.",
+                      "Single final transcript event per utterance.",
+                      "Server-side barge-in and response orchestration.",
                     ].map((item) => (
-                      <div key={item.title} className="rounded-2xl border border-white/8 bg-black/20 p-3">
-                        <div className="text-xs font-semibold text-white">{item.title}</div>
-                        <div className="mt-1 text-xs leading-5 text-white/48">{item.description}</div>
-                      </div>
+                      <li key={item} className="flex gap-2.5">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
+                        <span>{item}</span>
+                      </li>
                     ))}
-                  </div>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white">
-                      <Shield className="h-4 w-4 text-violet-200" />
-                      What to expect
-                    </div>
-                    <ul className="mt-3 space-y-2.5 text-xs text-white/52">
-                      {[
-                        "Transcript preserved for recruiter review.",
-                        "Barge-in lets the candidate interrupt naturally.",
-                        "Minimal interface noise during the session.",
-                      ].map((item) => (
-                        <li key={item} className="flex gap-2.5">
-                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white">
-                      <Shield className="h-4 w-4 text-cyan-200" />
-                      Setup notes
-                    </div>
-                    <ul className="mt-3 space-y-2.5 text-xs text-white/52">
-                      {[
-                        "Keep the voice backend running.",
-                        "Allow microphone capture in your browser.",
-                        "Grant mic permission before starting.",
-                      ].map((item) => (
-                        <li key={item} className="flex gap-2.5">
-                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  </ul>
                 </div>
 
                 <Button
@@ -1469,7 +688,6 @@ export default function VoiceAgentPage() {
               </div>
             )}
 
-            {/* CONNECTING */}
             {isConnecting && (
               <div className="rounded-[24px] border border-violet-400/18 bg-violet-400/10 p-5">
                 <div className="flex items-center gap-3">
@@ -1477,12 +695,11 @@ export default function VoiceAgentPage() {
                   <div className="text-base font-semibold text-white">Preparing the session</div>
                 </div>
                 <div className="mt-2 text-sm leading-6 text-white/58">
-                  Checking backend availability and initializing microphone capture.
+                  Negotiating WebRTC and initializing server-side voice pipeline.
                 </div>
               </div>
             )}
 
-            {/* ACTIVE CALL */}
             {isCallActive && (
               <div className="space-y-4">
                 <WaveformVisualizer
@@ -1493,9 +710,7 @@ export default function VoiceAgentPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Candidate input</div>
-                    <div className="mt-2 line-clamp-3 text-sm leading-6 text-white/65">
-                      {userSpeech || "Waiting for candidate speech…"}
-                    </div>
+                    <div className="mt-2 line-clamp-3 text-sm leading-6 text-white/65">{userSpeech || "Waiting for candidate speech…"}</div>
                   </div>
                   <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Session activity</div>
@@ -1515,10 +730,8 @@ export default function VoiceAgentPage() {
                     </div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center">
-                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Capture</div>
-                    <div className="mt-1.5 text-sm font-semibold text-white">
-                      {candidateTurns ? "Live" : "Waiting"}
-                    </div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Duration</div>
+                    <div className="mt-1.5 text-sm font-semibold text-white">{formatDuration(sessionDurationMs)}</div>
                   </div>
                 </div>
 
@@ -1535,7 +748,7 @@ export default function VoiceAgentPage() {
                   <Button
                     size="lg"
                     className="flex-1 rounded-full border border-red-400/20 bg-red-400/10 text-red-100 hover:bg-red-400/18"
-                    onClick={() => void handleEndCall()}
+                    onClick={handleEndCall}
                   >
                     <PhoneOff className="h-4 w-4" />
                     End session
@@ -1543,63 +756,9 @@ export default function VoiceAgentPage() {
                 </div>
               </div>
             )}
-
-            {/* COMPLETED */}
-            {hasCompletedSession && !isCallActive && (
-              <div className="animate-fade-in-up space-y-4">
-                <div className="rounded-[24px] border border-emerald-400/18 bg-emerald-400/10 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/12 text-emerald-200">
-                      <CheckCircle2 className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="text-base font-semibold text-white">Session complete</div>
-                      <div className="mt-1.5 line-clamp-2 text-sm leading-6 text-white/60">{summary.overview}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Recommended next step</div>
-                  <div className="mt-2 text-sm leading-6 text-white/62">{summary.recommendation}</div>
-                </div>
-
-                <div className="space-y-2">
-                  <Button
-                    size="lg"
-                    className="w-full rounded-full bg-[#7A4DFF] text-white shadow-[0_16px_40px_rgba(122,77,255,0.28)] hover:bg-[#6a3ff2]"
-                    onClick={() => void handleStartListening()}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Start New Session
-                  </Button>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      className="rounded-full border-white/15 bg-white/[0.03] text-white hover:bg-white/[0.08] hover:text-white"
-                      onClick={() => setActiveTab("transcript")}
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                      Transcript
-                    </Button>
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      className="rounded-full border-white/15 bg-white/[0.03] text-white hover:bg-white/[0.08] hover:text-white"
-                      onClick={() => setActiveTab("insights")}
-                    >
-                      <BarChart3 className="h-4 w-4" />
-                      AI Insights
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </ProductPanel>
 
-        {/* RIGHT: REVIEW PANEL */}
         <ProductPanel className="p-5 md:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1620,12 +779,11 @@ export default function VoiceAgentPage() {
               </TabsList>
             </div>
 
-            {/* TRANSCRIPT TAB */}
             <TabsContent value="transcript">
               <div className="max-h-[520px] space-y-2.5 overflow-y-auto pr-1">
                 {!transcriptEntries.length && (
                   <div className="rounded-[22px] border border-dashed border-white/12 bg-black/20 p-5 text-sm leading-7 text-white/48">
-                    The transcript panel stays empty until the conversation starts. Candidate and assistant turns appear here with timestamps for later review.
+                    Transcript entries appear after backend finalizes candidate utterances.
                   </div>
                 )}
                 {transcriptEntries.map((entry) => (
@@ -1637,10 +795,8 @@ export default function VoiceAgentPage() {
                         : "border-cyan-400/16 bg-cyan-400/8"
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${entry.speaker === "Candidate" ? "text-violet-300" : "text-cyan-300"}`}>
-                        {entry.speaker}
-                      </div>
+                    <div className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${entry.speaker === "Candidate" ? "text-violet-300" : "text-cyan-300"}`}>
+                      {entry.speaker}
                     </div>
                     <div className="mt-2 text-sm leading-6 text-white/70">{entry.text}</div>
                   </div>
@@ -1648,59 +804,39 @@ export default function VoiceAgentPage() {
               </div>
             </TabsContent>
 
-            {/* INSIGHTS TAB */}
             <TabsContent value="insights">
               <div className="space-y-4">
                 <div className="rounded-[22px] border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/52">
-                  Live insights are directional signals derived from the transcript — not final hiring decisions.
+                  Live insights are directional signals derived from transcript, not final hiring decisions.
                 </div>
                 <div className="space-y-3">
                   {insights.map((insight) => (
                     <InsightCard key={insight.label} {...insight} />
                   ))}
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white">
-                      <Brain className="h-4 w-4 text-violet-200" />
-                      Topics
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {(topics.length ? topics : ["No topics captured yet"]).map((topic) => (
-                        <div
-                          key={topic}
-                          className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/60"
-                        >
-                          {topic}
-                        </div>
-                      ))}
-                    </div>
+                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center gap-2 text-sm font-medium text-white">
+                    <Target className="h-4 w-4 text-cyan-200" />
+                    Review guidance
                   </div>
-                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white">
-                      <Target className="h-4 w-4 text-cyan-200" />
-                      Review guidance
-                    </div>
-                    <ul className="mt-3 space-y-2 text-xs text-white/52">
-                      {[
-                        "Confirm examples before advancing the candidate.",
-                        "Look for role-specific depth beyond ownership language.",
-                        "Capture follow-up questions while fresh.",
-                      ].map((item) => (
-                        <li key={item} className="flex gap-2.5">
-                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  <ul className="mt-3 space-y-2 text-xs text-white/52">
+                    {[
+                      "Confirm examples before advancing the candidate.",
+                      "Validate role-specific depth beyond ownership language.",
+                      "Capture follow-up questions while context is fresh.",
+                    ].map((item) => (
+                      <li key={item} className="flex gap-2.5">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             </TabsContent>
 
-            {/* SUMMARY TAB */}
             <TabsContent value="summary">
-              <div key={hasCompletedSession ? "completed" : "empty"} className="animate-result-in space-y-3">
+              <div className="space-y-3">
                 <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                   <div className="flex items-center gap-2 text-sm font-medium text-white">
                     <FileText className="h-4 w-4 text-violet-200" />
@@ -1726,43 +862,12 @@ export default function VoiceAgentPage() {
                     </ul>
                   </div>
                 </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white">
-                      <Sparkles className="h-4 w-4 text-violet-200" />
-                      Strengths
-                    </div>
-                    <ul className="mt-3 space-y-2 text-xs text-white/52">
-                      {summary.strengths.map((item) => (
-                        <li key={item} className="flex gap-2.5">
-                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-300" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white">
-                      <AlertCircle className="h-4 w-4 text-cyan-200" />
-                      Concerns
-                    </div>
-                    <ul className="mt-3 space-y-2 text-xs text-white/52">
-                      {summary.concerns.map((item) => (
-                        <li key={item} className="flex gap-2.5">
-                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
               </div>
             </TabsContent>
           </Tabs>
         </ProductPanel>
-
       </section>
     </ProductShell>
   )
 }
+

@@ -1,12 +1,9 @@
-// Voice agent HTTP client — connects to Backend/agent.py (default localhost:5000)
+type VoiceState = "idle" | "listening" | "processing" | "speaking" | "closed"
 
 function sanitizeError(err: unknown): string {
   const msg = String(err).toLowerCase()
-  if (msg.includes("401") || msg.includes("access denied") || msg.includes("invalid subscription") || msg.includes("wrong api endpoint")) {
+  if (msg.includes("401") || msg.includes("access denied") || msg.includes("invalid subscription")) {
     return "The voice service is temporarily unavailable. Please try again shortly."
-  }
-  if (msg.includes("error code") || msg.includes("'error'") || msg.includes('"error"')) {
-    return "The voice service encountered an error. Please try again."
   }
   if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("econnrefused")) {
     return "Cannot reach the voice server. Make sure the backend is running."
@@ -14,263 +11,330 @@ function sanitizeError(err: unknown): string {
   if (msg.includes("timeout")) {
     return "The voice server took too long to respond. Please try again."
   }
+  if (msg.includes("webrtc")) {
+    return "WebRTC connection failed. Check backend URL, HTTPS setup, and firewall/VPN."
+  }
   return "Something went wrong with the voice session. Please try again."
 }
+
+type EventPayload = {
+  type?: string
+  state?: VoiceState
+  text?: string
+  message?: string
+}
+
 export class HTTPClient {
   private serverUrl: string
   private onAIResponse: (response: string) => void
+  private onCandidateTranscription: ((text: string) => void) | undefined
   private onConnectionChange: (connected: boolean) => void
+  private onStateChange: ((state: VoiceState) => void) | undefined
   private onError: (error: string) => void
   private onPlaybackEnded: (() => void) | undefined
-  private currentAudio: HTMLAudioElement | null = null
+
+  private peerConnection: RTCPeerConnection | null = null
+  private dataChannel: RTCDataChannel | null = null
+  private localStream: MediaStream | null = null
+  private remoteAudio: HTMLAudioElement | null = null
+  private sessionId: string | null = null
   private isSessionActive = false
-  private pendingControllers = new Set<AbortController>()
+  private currentState: VoiceState = "idle"
 
   constructor(config: {
     serverUrl?: string
     onAIResponse: (response: string) => void
+    onCandidateTranscription?: (text: string) => void
     onConnectionChange: (connected: boolean) => void
+    onStateChange?: (state: VoiceState) => void
     onError: (error: string) => void
     onPlaybackEnded?: () => void
   }) {
-    this.serverUrl = config.serverUrl || "http://localhost:5000"
+    this.serverUrl = (config.serverUrl || "http://localhost:5000").replace(/\/+$/, "")
     this.onAIResponse = config.onAIResponse
+    this.onCandidateTranscription = config.onCandidateTranscription
     this.onConnectionChange = config.onConnectionChange
+    this.onStateChange = config.onStateChange
     this.onError = config.onError
     this.onPlaybackEnded = config.onPlaybackEnded
   }
 
   async connect(): Promise<void> {
-    const controller = this.createRequestController()
+    if (this.isSessionActive) return
+    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
+      throw new Error("WebRTC is not supported in this browser.")
+    }
+
     try {
-      const response = await fetch(`${this.serverUrl}/health`, { signal: controller.signal })
-      if (response.ok) {
-        this.isSessionActive = true
-        this.onConnectionChange(true)
-        this.onAIResponse("Connected! Ready to chat.")
-      } else {
-        throw new Error("Server health check failed")
+      await this.checkHealth()
+
+      this.peerConnection = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      })
+      this.dataChannel = this.peerConnection.createDataChannel("events")
+      this.dataChannel.onmessage = (event) => this.handleDataChannelMessage(event.data)
+
+      this.peerConnection.ondatachannel = (event) => {
+        const channel = event.channel
+        channel.onmessage = (messageEvent) => this.handleDataChannelMessage(messageEvent.data)
       }
+
+      this.peerConnection.ontrack = (event) => {
+        const [remoteStream] = event.streams
+        if (!remoteStream) return
+        if (!this.remoteAudio) {
+          this.remoteAudio = new Audio()
+          this.remoteAudio.autoplay = true
+          this.remoteAudio.setAttribute("playsinline", "true")
+        }
+        this.remoteAudio.srcObject = remoteStream
+        void this.remoteAudio.play().catch(() => {
+          // Browser autoplay rules may require user interaction; start button click usually satisfies it.
+        })
+      }
+
+      this.peerConnection.onconnectionstatechange = () => {
+        const state = this.peerConnection?.connectionState
+        if (state === "failed" || state === "disconnected" || state === "closed") {
+          this.disconnectInternal(false)
+        }
+      }
+
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+      for (const track of this.localStream.getAudioTracks()) {
+        this.peerConnection.addTrack(track, this.localStream)
+      }
+
+      const offer = await this.peerConnection.createOffer()
+      await this.peerConnection.setLocalDescription(offer)
+      await this.waitForIceGatheringComplete(this.peerConnection)
+
+      const localDescription = this.peerConnection.localDescription
+      if (!localDescription?.sdp) {
+        throw new Error("WebRTC local offer generation failed.")
+      }
+
+      const answerPayload = await this.postJson("/webrtc/connect", {
+        type: localDescription.type,
+        sdp: localDescription.sdp,
+      })
+
+      this.sessionId = String(answerPayload.session_id || "")
+      const answerType = String(answerPayload.type || "answer")
+      const answerSdp = String(answerPayload.sdp || "")
+      if (!this.sessionId || !answerSdp) {
+        throw new Error("Invalid WebRTC answer from backend.")
+      }
+
+      await this.peerConnection.setRemoteDescription({
+        type: answerType as RTCSdpType,
+        sdp: answerSdp,
+      })
+
+      this.isSessionActive = true
+      this.setState("listening")
+      this.onConnectionChange(true)
     } catch (error) {
-      if (this.isAbortError(error)) return
+      this.disconnectInternal(false)
       this.onError(sanitizeError(error))
       throw error
-    } finally {
-      this.pendingControllers.delete(controller)
     }
   }
 
-  async sendAudio(audioBlob: Blob): Promise<void> {
-    if (!this.isSessionActive) return
-    const controller = this.createRequestController()
-    try {
-      const audioBase64 = await this.blobToBase64(audioBlob)
-      const response = await fetch(`${this.serverUrl}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          audio_base64: audioBase64.split(",")[1],
-        }),
-      })
-      if (!this.isSessionActive || controller.signal.aborted) return
-      if (!response.ok) throw new Error(`Server error: ${response.status}`)
-      const data = await response.json()
-      if (!this.isSessionActive || controller.signal.aborted) return
-      if (data.error) throw new Error(data.error)
-      this.onAIResponse(data.text_response)
-      if (data.audio_base64) {
-        this.playAudioResponse(data.audio_base64)
-      } else {
-        // No audio (interrupted or TTS skipped) — notify immediately so frontend resets mic state
-        this.onPlaybackEnded?.()
-      }
-    } catch (error) {
-      if (this.isAbortError(error)) return
-      this.onError(sanitizeError(error))
-    } finally {
-      this.pendingControllers.delete(controller)
+  disconnect(): void {
+    this.disconnectInternal(true)
+  }
+
+  setMicEnabled(enabled: boolean): void {
+    if (!this.localStream) return
+    for (const track of this.localStream.getAudioTracks()) {
+      track.enabled = enabled
     }
-  }
-
-  async transcribeAudio(audioBlob: Blob): Promise<string> {
-    if (!this.isSessionActive) return ""
-    const controller = this.createRequestController()
-    try {
-      const formData = new FormData()
-      formData.append("audio", audioBlob, this.getAudioFilename(audioBlob))
-
-      const response = await fetch(`${this.serverUrl}/transcribe`, {
-        method: "POST",
-        signal: controller.signal,
-        body: formData,
-      })
-      if (!this.isSessionActive || controller.signal.aborted) return ""
-      if (!response.ok) throw new Error(`Server error: ${response.status}`)
-      const data = await response.json()
-      if (!this.isSessionActive || controller.signal.aborted) return ""
-      if (data.error) throw new Error(data.error)
-      return String(data.transcribed_text || "").trim()
-    } catch (error) {
-      if (this.isAbortError(error)) return ""
-      this.onError(sanitizeError(error))
-      throw error
-    } finally {
-      this.pendingControllers.delete(controller)
-    }
-  }
-
-  private getAudioFilename(audioBlob: Blob): string {
-    const mime = (audioBlob.type || "").toLowerCase().split(";")[0]
-    if (mime === "audio/mp4" || mime === "audio/m4a") return "chunk.m4a"
-    if (mime === "audio/ogg") return "chunk.ogg"
-    if (mime === "audio/wav" || mime === "audio/wave" || mime === "audio/x-wav") return "chunk.wav"
-    return "chunk.webm"
-  }
-
-  async sendTextMessage(text: string): Promise<void> {
-    if (!this.isSessionActive) return
-    const controller = this.createRequestController()
-    try {
-      this.stopAudioPlayback()
-      const response = await fetch(`${this.serverUrl}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({ text_input: text }),
-      })
-      if (!this.isSessionActive || controller.signal.aborted) return
-      if (!response.ok) throw new Error(`Server error: ${response.status}`)
-      const data = await response.json()
-      if (!this.isSessionActive || controller.signal.aborted) return
-      if (data.error) throw new Error(data.error)
-      this.onAIResponse(data.text_response)
-      if (data.audio_base64) {
-        this.playAudioResponse(data.audio_base64)
-      } else {
-        // No audio (interrupted or TTS skipped) — notify immediately so frontend resets mic state
-        this.onPlaybackEnded?.()
-      }
-    } catch (error) {
-      if (this.isAbortError(error)) return
-      this.onError(sanitizeError(error))
-    } finally {
-      this.pendingControllers.delete(controller)
-    }
-  }
-
-  private async blobToBase64(blob: Blob): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
-  }
-
-  private playAudioResponse(audioBase64: string): void {
-    if (!this.isSessionActive) return
-    try {
-      this.stopAudioPlayback()
-      const audioBlob = this.base64ToBlob(audioBase64, "audio/wav")
-      const audioUrl = URL.createObjectURL(audioBlob)
-      this.currentAudio = new Audio(audioUrl)
-      this.currentAudio.onended = () => {
-        URL.revokeObjectURL(audioUrl)
-        this.currentAudio = null
-        if (!this.isSessionActive) return
-        this.onPlaybackEnded?.()
-      }
-      this.currentAudio.onerror = () => {
-        URL.revokeObjectURL(audioUrl)
-        this.currentAudio = null
-        if (!this.isSessionActive) return
-        this.onPlaybackEnded?.()
-      }
-      this.currentAudio.play().catch((err) => {
-        console.error("Audio playback failed:", err)
-        URL.revokeObjectURL(audioUrl)
-        this.currentAudio = null
-      })
-    } catch (error) {
-      console.error("Audio playback setup failed:", error)
+    if (!enabled) {
+      this.setState("idle")
+    } else if (this.isSessionActive && this.currentState === "idle") {
+      this.setState("listening")
     }
   }
 
   stopAudioPlayback(): void {
-    if (this.currentAudio) {
-      this.currentAudio.pause()
-      this.currentAudio.currentTime = 0
-      this.currentAudio = null
-    }
-  }
-
-  private base64ToBlob(base64: string, contentType: string): Blob {
-    const byteCharacters = atob(base64)
-    const byteArrays: ArrayBuffer[] = []
-    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-      const slice = byteCharacters.slice(offset, offset + 512)
-      const byteNumbers = new Array(slice.length)
-      for (let i = 0; i < slice.length; i++) byteNumbers[i] = slice.charCodeAt(i)
-      const chunk = new Uint8Array(byteNumbers)
-      const buffer = new ArrayBuffer(chunk.byteLength)
-      new Uint8Array(buffer).set(chunk)
-      byteArrays.push(buffer)
-    }
-    return new Blob(byteArrays, { type: contentType })
-  }
-
-  disconnect(): void {
-    this.isSessionActive = false
-    this.cancelPendingRequests()
-    this.stopAudioPlayback()
-    this.onConnectionChange(false)
+    if (!this.remoteAudio) return
+    this.remoteAudio.pause()
   }
 
   async interrupt(): Promise<void> {
-    const controller = this.createRequestController()
+    if (!this.isSessionActive || !this.sessionId) return
     try {
-      await fetch(`${this.serverUrl}/interrupt`, {
+      if (this.dataChannel?.readyState === "open") {
+        this.dataChannel.send(JSON.stringify({ type: "interrupt" }))
+      }
+      await fetch(`${this.serverUrl}/webrtc/session/${this.sessionId}/interrupt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
       })
-    } catch (error) {
-      if (this.isAbortError(error)) return
-      console.error("Failed to send barge-in signal:", error)
-    } finally {
-      this.pendingControllers.delete(controller)
+    } catch {
+      // Soft-fail: interruption is best-effort.
     }
   }
 
   async getSpeakingStatus(): Promise<{ is_speaking: boolean; barge_in_active: boolean }> {
-    const controller = this.createRequestController()
+    return {
+      is_speaking: this.currentState === "speaking",
+      barge_in_active: false,
+    }
+  }
+
+  private async checkHealth(): Promise<void> {
+    const response = await fetch(`${this.serverUrl}/health`)
+    if (!response.ok) {
+      throw new Error(`Health check failed: ${response.status}`)
+    }
+  }
+
+  private async postJson(path: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await fetch(`${this.serverUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) {
+      let detail = ""
+      try {
+        const data = await response.json()
+        detail = String(data.error || "")
+      } catch {
+        detail = ""
+      }
+      throw new Error(`WebRTC request failed: ${response.status} ${detail}`.trim())
+    }
+    return (await response.json()) as Record<string, unknown>
+  }
+
+  private handleDataChannelMessage(raw: unknown): void {
+    if (!raw) return
+    let payload: EventPayload
     try {
-      const response = await fetch(`${this.serverUrl}/speaking_status`, { signal: controller.signal })
-      return await response.json()
+      payload = typeof raw === "string" ? (JSON.parse(raw) as EventPayload) : (JSON.parse(String(raw)) as EventPayload)
     } catch {
-      return { is_speaking: false, barge_in_active: false }
-    } finally {
-      this.pendingControllers.delete(controller)
+      return
+    }
+
+    const eventType = String(payload.type || "")
+    if (eventType === "state" && payload.state) {
+      const previousState = this.currentState
+      this.setState(payload.state)
+      if (previousState === "speaking" && payload.state !== "speaking") {
+        this.onPlaybackEnded?.()
+      }
+      return
+    }
+    if (eventType === "candidate_final") {
+      const text = String(payload.text || "").trim()
+      if (text) this.onCandidateTranscription?.(text)
+      return
+    }
+    if (eventType === "ai_final") {
+      const text = String(payload.text || "").trim()
+      if (text) this.onAIResponse(text)
+      return
+    }
+    if (eventType === "error") {
+      const message = String(payload.message || "").trim()
+      if (message) this.onError(message)
+      return
+    }
+    if (eventType === "interrupted") {
+      this.setState("listening")
     }
   }
 
-  private isAbortError(error: unknown): boolean {
-    return error instanceof DOMException
-      ? error.name === "AbortError"
-      : String(error).toLowerCase().includes("abort")
+  private setState(nextState: VoiceState): void {
+    if (this.currentState === nextState) return
+    this.currentState = nextState
+    this.onStateChange?.(nextState)
   }
 
-  private createRequestController(): AbortController {
-    const controller = new AbortController()
-    this.pendingControllers.add(controller)
-    return controller
-  }
-
-  private cancelPendingRequests(): void {
-    for (const controller of this.pendingControllers) {
-      controller.abort()
+  private async notifyBackendClose(sessionId: string): Promise<void> {
+    try {
+      await fetch(`${this.serverUrl}/webrtc/session/${sessionId}/close`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+    } catch {
+      // Best effort.
     }
-    this.pendingControllers.clear()
+  }
+
+  private disconnectInternal(intentional: boolean): void {
+    const closingSession = this.sessionId
+    this.sessionId = null
+    this.isSessionActive = false
+    this.setState("closed")
+
+    if (this.dataChannel) {
+      try {
+        this.dataChannel.close()
+      } catch {
+        // ignore
+      }
+      this.dataChannel = null
+    }
+
+    if (this.peerConnection) {
+      try {
+        this.peerConnection.close()
+      } catch {
+        // ignore
+      }
+      this.peerConnection = null
+    }
+
+    if (this.localStream) {
+      for (const track of this.localStream.getTracks()) {
+        track.stop()
+      }
+      this.localStream = null
+    }
+
+    if (this.remoteAudio) {
+      this.remoteAudio.pause()
+      this.remoteAudio.srcObject = null
+      this.remoteAudio = null
+    }
+
+    if (closingSession) {
+      void this.notifyBackendClose(closingSession)
+    }
+
+    this.onConnectionChange(false)
+    if (!intentional) {
+      this.onError("Disconnected from the voice server.")
+    }
+  }
+
+  private async waitForIceGatheringComplete(pc: RTCPeerConnection): Promise<void> {
+    if (pc.iceGatheringState === "complete") return
+    await new Promise<void>((resolve) => {
+      const timeout = window.setTimeout(() => {
+        pc.removeEventListener("icegatheringstatechange", onStateChange)
+        resolve()
+      }, 2500)
+
+      const onStateChange = () => {
+        if (pc.iceGatheringState === "complete") {
+          clearTimeout(timeout)
+          pc.removeEventListener("icegatheringstatechange", onStateChange)
+          resolve()
+        }
+      }
+
+      pc.addEventListener("icegatheringstatechange", onStateChange)
+    })
   }
 }
