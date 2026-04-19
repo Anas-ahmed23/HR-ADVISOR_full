@@ -54,7 +54,7 @@ AZURE_TRANSCRIBE_ENDPOINT   = os.getenv("AZURE_TRANSCRIBE_ENDPOINT")
 AZURE_TRANSCRIBE_DEPLOYMENT = os.getenv("AZURE_TRANSCRIBE_DEPLOYMENT", "gpt-4o-transcribe")
 AZURE_TRANSCRIBE_API_VERSION = os.getenv("AZURE_TRANSCRIBE_API_VERSION", "2025-03-01-preview")
 AZURE_TRANSCRIBE_LANGUAGE   = os.getenv("AZURE_TRANSCRIBE_LANGUAGE", "en")
-AZURE_TRANSCRIBE_PROMPT     = os.getenv("AZURE_TRANSCRIBE_PROMPT", "The speaker is speaking English.")
+AZURE_TRANSCRIBE_PROMPT     = os.getenv("AZURE_TRANSCRIBE_PROMPT", "")
 
 # ── Azure TTS ──────────────────────────────────────────────────────────────
 AZURE_TTS_API_KEY    = os.getenv("AZURE_TTS_API_KEY")
@@ -365,8 +365,10 @@ def transcribe_audio(file_path: str, mime_type: str = "audio/wav") -> str:
     data    = {
         "model":    AZURE_TRANSCRIBE_DEPLOYMENT,
         "language": AZURE_TRANSCRIBE_LANGUAGE,
-        "prompt":   AZURE_TRANSCRIBE_PROMPT,
     }
+    prompt_hint = (AZURE_TRANSCRIBE_PROMPT or "").strip()
+    if prompt_hint:
+        data["prompt"] = prompt_hint
     with open(file_path, "rb") as f:
         files = {"file": (os.path.basename(file_path), f, mime_type)}
         resp  = requests.post(url, headers=headers, data=data, files=files, timeout=90)
@@ -374,7 +376,13 @@ def transcribe_audio(file_path: str, mime_type: str = "audio/wav") -> str:
         resp.raise_for_status()
     except Exception as exc:
         raise RuntimeError(f"Azure STT error {resp.status_code}: {resp.text}") from exc
-    return (resp.json().get("text") or "").strip()
+    text = (resp.json().get("text") or "").strip()
+    if prompt_hint:
+        normalized_text = re.sub(r"\s+", " ", text.lower()).strip(" .,!?:;")
+        normalized_prompt = re.sub(r"\s+", " ", prompt_hint.lower()).strip(" .,!?:;")
+        if normalized_text and normalized_text == normalized_prompt:
+            return ""
+    return text
 
 
 def process_audio_input(

@@ -55,6 +55,29 @@ const systemResponseFragments = [
   "conversation ended",
 ]
 
+const ignoredCandidatePhrases = [
+  "the speaker is speaking english",
+  "speaker is speaking english",
+  "speech recognition encountered an issue",
+  "speech recognition lost network access",
+  "speech network diagnostic",
+]
+
+function normalizeTranscriptText(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function shouldIgnoreCandidateUtterance(text: string) {
+  const normalized = normalizeTranscriptText(text)
+  if (!normalized) return true
+  if (normalized.length < 2) return true
+  return ignoredCandidatePhrases.some((phrase) => normalized === phrase || normalized.includes(phrase))
+}
+
 const topicLibrary = [
   {
     label: "Technical depth",
@@ -598,8 +621,9 @@ export default function VoiceAgentPage() {
   const processCandidateUtterance = async (text: string) => {
     const finalMessage = text.trim()
     if (!finalMessage || !isMicOnRef.current) return
+    if (shouldIgnoreCandidateUtterance(finalMessage)) return
 
-    const normalized = finalMessage.toLowerCase()
+    const normalized = normalizeTranscriptText(finalMessage)
     const now = Date.now()
     if (normalized === lastCandidateUtteranceRef.current && now - lastCandidateUtteranceAtRef.current < 2200) {
       return
@@ -645,7 +669,7 @@ export default function VoiceAgentPage() {
     isTranscribingChunkRef.current = true
     try {
       const text = await httpClientRef.current.transcribeAudio(audioChunk)
-      if (!text) return
+      if (!text || shouldIgnoreCandidateUtterance(text)) return
 
       setLiveTranscript(text)
       await processCandidateUtterance(text)
