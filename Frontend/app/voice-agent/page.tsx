@@ -14,6 +14,7 @@ import {
   Mic,
   MicOff,
   PhoneOff,
+  PlayCircle,
   RefreshCw,
   Shield,
   Sparkles,
@@ -106,7 +107,7 @@ function getSummary(entries: TranscriptEntry[]): SummaryView {
       concerns: ["Insufficient evidence to assess communication or role fit signals."],
       recruiterNotes: [
         "Confirm microphone access and backend connectivity.",
-        "Speak in a quiet room and avoid speaker feedback.",
+        "Use the transcript tab to verify capture quality during the call.",
       ],
     }
   }
@@ -123,7 +124,7 @@ function getSummary(entries: TranscriptEntry[]): SummaryView {
   const concerns = [
     averageCandidateLength < 9
       ? "Candidate responses were brief; schedule follow-up questions for deeper evidence."
-      : "Review transcript depth against the specific role scorecard.",
+      : "Review transcript for depth against the specific role scorecard.",
   ]
 
   if (!topics.includes("Technical depth")) {
@@ -222,7 +223,7 @@ function getStatusView(params: {
   if (params.isConnecting) {
     return {
       label: "Connecting",
-      description: "Opening WebRTC session and microphone stream.",
+      description: "Checking backend health and preparing microphone capture.",
       badgeClassName: "border-violet-400/20 bg-violet-400/10 text-violet-200",
     }
   }
@@ -230,7 +231,7 @@ function getStatusView(params: {
   if (params.isProcessing) {
     return {
       label: "Processing",
-      description: "The assistant is generating a response from the latest utterance.",
+      description: "The assistant is generating a response and updating the session.",
       badgeClassName: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
     }
   }
@@ -238,7 +239,7 @@ function getStatusView(params: {
   if (params.isAISpeaking) {
     return {
       label: "AI speaking",
-      description: "Audio playback is active.",
+      description: "Audio playback is active. Candidate speech can interrupt when needed.",
       badgeClassName: "border-cyan-400/20 bg-cyan-400/10 text-cyan-200",
     }
   }
@@ -246,7 +247,7 @@ function getStatusView(params: {
   if (params.isCallActive && params.isListening && params.isMicOn) {
     return {
       label: "Listening",
-      description: "Backend VAD/STT is active and ready for candidate responses.",
+      description: "Transcript capture is live and ready for candidate responses.",
       badgeClassName: "border-emerald-400/20 bg-emerald-400/10 text-emerald-200",
     }
   }
@@ -278,6 +279,28 @@ function MetaBadge({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/60">
       {children}
+    </div>
+  )
+}
+
+function WorkflowStep({
+  label,
+  state,
+}: {
+  label: string
+  state: "complete" | "current" | "upcoming"
+}) {
+  const stateClasses =
+    state === "complete"
+      ? "border-emerald-400/25 bg-emerald-400/12 text-emerald-200"
+      : state === "current"
+        ? "border-violet-400/25 bg-violet-400/12 text-violet-200"
+        : "border-white/10 bg-white/[0.03] text-white/45"
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 text-sm ${stateClasses}`}>
+      <div className="text-[11px] uppercase tracking-[0.2em] opacity-70">Stage</div>
+      <div className="mt-2 font-medium">{label}</div>
     </div>
   )
 }
@@ -525,17 +548,46 @@ export default function VoiceAgentPage() {
       <ProductShell currentPath="/voice-agent">
         <div className="flex min-h-[70vh] items-center justify-center">
           <div className="relative mx-auto w-full max-w-lg">
+            {/* Ambient glow */}
             <div className="pointer-events-none absolute -inset-12 rounded-full bg-violet-500/10 blur-[80px]" />
+
             <div className="relative flex flex-col items-center gap-8 rounded-[28px] border border-white/10 bg-white/[0.03] px-8 py-14 text-center backdrop-blur-sm">
+              {/* Lock icon */}
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06]">
                 <Lock className="h-7 w-7 text-white/40" />
               </div>
+
+              {/* Copy */}
               <div className="space-y-3">
-                <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">Voice Agent Locked</h2>
+                <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">
+                  Voice Agent Locked
+                </h2>
                 <p className="max-w-sm text-sm leading-7 text-white/50">
-                  The AI Voice Agent requires a completed CV analysis to operate. Run an analysis first to load candidate context.
+                  The AI Voice Agent requires a completed CV analysis to operate.
+                  Run an analysis first to load candidate context and unlock this workspace.
                 </p>
               </div>
+
+              {/* Steps */}
+              <div className="w-full space-y-2.5">
+                {[
+                  { n: "01", label: "Upload candidate CV" },
+                  { n: "02", label: "Select a job description" },
+                  { n: "03", label: "Run analysis - Voice Agent unlocks" },
+                ].map(({ n, label }) => (
+                  <div
+                    key={n}
+                    className="flex items-center gap-4 rounded-2xl border border-white/8 bg-white/[0.025] px-5 py-3.5 text-left"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-violet-400/30 bg-violet-400/12 text-[10px] font-bold text-violet-300">
+                      {n}
+                    </span>
+                    <span className="text-sm text-white/65">{label}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* CTA */}
               <Button
                 asChild
                 size="lg"
@@ -552,6 +604,8 @@ export default function VoiceAgentPage() {
 
   return (
     <ProductShell currentPath="/voice-agent" mainClassName="space-y-8 md:space-y-10">
+
+      {/* â”€â”€ PAGE HEADER â”€â”€ */}
       <section>
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-4">
@@ -559,21 +613,26 @@ export default function VoiceAgentPage() {
               <Sparkles className="h-3.5 w-3.5" />
               Voice interview workspace
             </div>
-            <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">AI Voice Agent</h1>
+            <h1 className="text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+              AI Voice Agent
+            </h1>
             <p className="max-w-2xl text-base leading-8 text-white/60">
-              Fully backend-driven WebRTC session with server-side VAD, transcription, and response generation.
+              Run live AI screening conversations with real-time transcription, interruption support, and recruiter-ready review panels.
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
-            <div className={`rounded-full border px-4 py-2 text-sm font-medium ${statusView.badgeClassName}`}>{statusView.label}</div>
+            <div className={`rounded-full border px-4 py-2 text-sm font-medium ${statusView.badgeClassName}`}>
+              {statusView.label}
+            </div>
             <div className="flex flex-wrap gap-2">
-              <MetaBadge>WebRTC transport</MetaBadge>
-              <MetaBadge>Backend STT/LLM/TTS</MetaBadge>
+              <MetaBadge>Live transcription</MetaBadge>
+              <MetaBadge>Recruiter workflow</MetaBadge>
             </div>
           </div>
         </div>
       </section>
 
+      {/* â”€â”€ STATS STRIP â”€â”€ */}
       <section>
         <ProductPanel className="p-3 sm:p-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -630,9 +689,14 @@ export default function VoiceAgentPage() {
         </ProductPanel>
       </section>
 
+      {/* â”€â”€ MAIN WORKSPACE â”€â”€ */}
       <section className="grid gap-6 xl:grid-cols-2">
+
+        {/* LEFT: SESSION CONTROLS */}
         <ProductPanel className="p-5 md:p-6">
           <div className="space-y-5">
+
+            {/* Panel header */}
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs uppercase tracking-[0.22em] text-white/35">Live session</div>
@@ -643,6 +707,17 @@ export default function VoiceAgentPage() {
               </div>
             </div>
 
+            {/* Workflow steps */}
+            <div className="grid grid-cols-3 gap-2">
+              <WorkflowStep label="Setup" state={sessionStartedAt ? "complete" : "current"} />
+              <WorkflowStep
+                label="Interview"
+                state={isCallActive ? "current" : hasCompletedSession ? "complete" : "upcoming"}
+              />
+              <WorkflowStep label="Review" state={hasCompletedSession ? "current" : "upcoming"} />
+            </div>
+
+            {/* Error */}
             {error && (
               <div className="rounded-[22px] border border-red-400/20 bg-red-400/8 p-4">
                 <div className="flex items-start gap-3">
@@ -655,25 +730,72 @@ export default function VoiceAgentPage() {
               </div>
             )}
 
+            {/* PRE-SESSION */}
             {!isCallActive && !hasCompletedSession && !isConnecting && (
               <div className="space-y-4">
                 <div className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(122,77,255,0.12),rgba(255,255,255,0.02))] p-5">
-                  <div className="text-base font-semibold text-white">Start a backend-driven screening session</div>
-                  <div className="mt-1.5 text-sm leading-6 text-white/55">
-                    Browser streams mic audio with WebRTC only. Backend handles segmentation, STT, LLM, and TTS.
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-violet-400/20 bg-violet-400/12 text-violet-200">
+                      <PlayCircle className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-base font-semibold text-white">Start a guided screening session</div>
+                      <div className="mt-1.5 text-sm leading-6 text-white/55">
+                        HR Advisor opens a live session, captures the conversation in real time, and organizes transcript context for recruiter review.
+                      </div>
+                    </div>
                   </div>
-                  <ul className="mt-4 space-y-2.5 text-xs text-white/52">
+                  <div className="mt-4 grid grid-cols-3 gap-2">
                     {[
-                      "No frontend MediaRecorder chunking or local VAD.",
-                      "Single final transcript event per utterance.",
-                      "Server-side barge-in and response orchestration.",
+                      { title: "1. Connect", description: "Confirm voice backend and mic are ready." },
+                      { title: "2. Interview", description: "Speak naturally while transcript updates live." },
+                      { title: "3. Review", description: "Use transcript and summary panels post-call." },
                     ].map((item) => (
-                      <li key={item} className="flex gap-2.5">
-                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
-                        <span>{item}</span>
-                      </li>
+                      <div key={item.title} className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                        <div className="text-xs font-semibold text-white">{item.title}</div>
+                        <div className="mt-1 text-xs leading-5 text-white/48">{item.description}</div>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Shield className="h-4 w-4 text-violet-200" />
+                      What to expect
+                    </div>
+                    <ul className="mt-3 space-y-2.5 text-xs text-white/52">
+                      {[
+                        "Transcript preserved for recruiter review.",
+                        "Barge-in lets the candidate interrupt naturally.",
+                        "Minimal interface noise during the session.",
+                      ].map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Shield className="h-4 w-4 text-cyan-200" />
+                      Setup notes
+                    </div>
+                    <ul className="mt-3 space-y-2.5 text-xs text-white/52">
+                      {[
+                        "Keep the voice backend running.",
+                        "Allow microphone capture in your browser.",
+                        "Grant mic permission before starting.",
+                      ].map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
 
                 <Button
@@ -688,6 +810,7 @@ export default function VoiceAgentPage() {
               </div>
             )}
 
+            {/* CONNECTING */}
             {isConnecting && (
               <div className="rounded-[24px] border border-violet-400/18 bg-violet-400/10 p-5">
                 <div className="flex items-center gap-3">
@@ -695,11 +818,12 @@ export default function VoiceAgentPage() {
                   <div className="text-base font-semibold text-white">Preparing the session</div>
                 </div>
                 <div className="mt-2 text-sm leading-6 text-white/58">
-                  Negotiating WebRTC and initializing server-side voice pipeline.
+                  Checking backend availability and initializing microphone capture.
                 </div>
               </div>
             )}
 
+            {/* ACTIVE CALL */}
             {isCallActive && (
               <div className="space-y-4">
                 <WaveformVisualizer
@@ -710,7 +834,9 @@ export default function VoiceAgentPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Candidate input</div>
-                    <div className="mt-2 line-clamp-3 text-sm leading-6 text-white/65">{userSpeech || "Waiting for candidate speech…"}</div>
+                    <div className="mt-2 line-clamp-3 text-sm leading-6 text-white/65">
+                      {userSpeech || "Waiting for candidate speech..."}
+                    </div>
                   </div>
                   <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Session activity</div>
@@ -730,8 +856,10 @@ export default function VoiceAgentPage() {
                     </div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center">
-                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Duration</div>
-                    <div className="mt-1.5 text-sm font-semibold text-white">{formatDuration(sessionDurationMs)}</div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Capture</div>
+                    <div className="mt-1.5 text-sm font-semibold text-white">
+                      {candidateTurns ? "Live" : "Waiting"}
+                    </div>
                   </div>
                 </div>
 
@@ -748,7 +876,7 @@ export default function VoiceAgentPage() {
                   <Button
                     size="lg"
                     className="flex-1 rounded-full border border-red-400/20 bg-red-400/10 text-red-100 hover:bg-red-400/18"
-                    onClick={handleEndCall}
+                    onClick={() => void handleEndCall()}
                   >
                     <PhoneOff className="h-4 w-4" />
                     End session
@@ -756,9 +884,63 @@ export default function VoiceAgentPage() {
                 </div>
               </div>
             )}
+
+            {/* COMPLETED */}
+            {hasCompletedSession && !isCallActive && (
+              <div className="animate-fade-in-up space-y-4">
+                <div className="rounded-[24px] border border-emerald-400/18 bg-emerald-400/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/12 text-emerald-200">
+                      <CheckCircle2 className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-base font-semibold text-white">Session complete</div>
+                      <div className="mt-1.5 line-clamp-2 text-sm leading-6 text-white/60">{summary.overview}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Recommended next step</div>
+                  <div className="mt-2 text-sm leading-6 text-white/62">{summary.recommendation}</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Button
+                    size="lg"
+                    className="w-full rounded-full bg-[#7A4DFF] text-white shadow-[0_16px_40px_rgba(122,77,255,0.28)] hover:bg-[#6a3ff2]"
+                    onClick={() => void handleStartListening()}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Start New Session
+                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      className="rounded-full border-white/15 bg-white/[0.03] text-white hover:bg-white/[0.08] hover:text-white"
+                      onClick={() => setActiveTab("transcript")}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      Transcript
+                    </Button>
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      className="rounded-full border-white/15 bg-white/[0.03] text-white hover:bg-white/[0.08] hover:text-white"
+                      onClick={() => setActiveTab("insights")}
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                      AI Insights
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </ProductPanel>
 
+        {/* RIGHT: REVIEW PANEL */}
         <ProductPanel className="p-5 md:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -779,11 +961,12 @@ export default function VoiceAgentPage() {
               </TabsList>
             </div>
 
+            {/* TRANSCRIPT TAB */}
             <TabsContent value="transcript">
               <div className="max-h-[520px] space-y-2.5 overflow-y-auto pr-1">
                 {!transcriptEntries.length && (
                   <div className="rounded-[22px] border border-dashed border-white/12 bg-black/20 p-5 text-sm leading-7 text-white/48">
-                    Transcript entries appear after backend finalizes candidate utterances.
+                    The transcript panel stays empty until the conversation starts. Candidate and assistant turns appear here with timestamps for later review.
                   </div>
                 )}
                 {transcriptEntries.map((entry) => (
@@ -795,8 +978,10 @@ export default function VoiceAgentPage() {
                         : "border-cyan-400/16 bg-cyan-400/8"
                     }`}
                   >
-                    <div className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${entry.speaker === "Candidate" ? "text-violet-300" : "text-cyan-300"}`}>
-                      {entry.speaker}
+                    <div className="flex items-center gap-3">
+                      <div className={`text-[10px] font-semibold uppercase tracking-[0.22em] ${entry.speaker === "Candidate" ? "text-violet-300" : "text-cyan-300"}`}>
+                        {entry.speaker}
+                      </div>
                     </div>
                     <div className="mt-2 text-sm leading-6 text-white/70">{entry.text}</div>
                   </div>
@@ -804,39 +989,59 @@ export default function VoiceAgentPage() {
               </div>
             </TabsContent>
 
+            {/* INSIGHTS TAB */}
             <TabsContent value="insights">
               <div className="space-y-4">
                 <div className="rounded-[22px] border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/52">
-                  Live insights are directional signals derived from transcript, not final hiring decisions.
+                  Live insights are directional signals derived from the transcript - not final hiring decisions.
                 </div>
                 <div className="space-y-3">
                   {insights.map((insight) => (
                     <InsightCard key={insight.label} {...insight} />
                   ))}
                 </div>
-                <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-center gap-2 text-sm font-medium text-white">
-                    <Target className="h-4 w-4 text-cyan-200" />
-                    Review guidance
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Brain className="h-4 w-4 text-violet-200" />
+                      Topics
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(topics.length ? topics : ["No topics captured yet"]).map((topic) => (
+                        <div
+                          key={topic}
+                          className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/60"
+                        >
+                          {topic}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <ul className="mt-3 space-y-2 text-xs text-white/52">
-                    {[
-                      "Confirm examples before advancing the candidate.",
-                      "Validate role-specific depth beyond ownership language.",
-                      "Capture follow-up questions while context is fresh.",
-                    ].map((item) => (
-                      <li key={item} className="flex gap-2.5">
-                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Target className="h-4 w-4 text-cyan-200" />
+                      Review guidance
+                    </div>
+                    <ul className="mt-3 space-y-2 text-xs text-white/52">
+                      {[
+                        "Confirm examples before advancing the candidate.",
+                        "Look for role-specific depth beyond ownership language.",
+                        "Capture follow-up questions while fresh.",
+                      ].map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
               </div>
             </TabsContent>
 
+            {/* SUMMARY TAB */}
             <TabsContent value="summary">
-              <div className="space-y-3">
+              <div key={hasCompletedSession ? "completed" : "empty"} className="animate-result-in space-y-3">
                 <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                   <div className="flex items-center gap-2 text-sm font-medium text-white">
                     <FileText className="h-4 w-4 text-violet-200" />
@@ -862,12 +1067,43 @@ export default function VoiceAgentPage() {
                     </ul>
                   </div>
                 </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <Sparkles className="h-4 w-4 text-violet-200" />
+                      Strengths
+                    </div>
+                    <ul className="mt-3 space-y-2 text-xs text-white/52">
+                      {summary.strengths.map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white">
+                      <AlertCircle className="h-4 w-4 text-cyan-200" />
+                      Concerns
+                    </div>
+                    <ul className="mt-3 space-y-2 text-xs text-white/52">
+                      {summary.concerns.map((item) => (
+                        <li key={item} className="flex gap-2.5">
+                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
             </TabsContent>
           </Tabs>
         </ProductPanel>
+
       </section>
     </ProductShell>
   )
 }
-

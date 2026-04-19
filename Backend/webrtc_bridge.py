@@ -21,12 +21,14 @@ from typing import Any, Callable, Deque, Dict, Optional, Tuple
 import numpy as np
 
 try:
+    import av
     from av import AudioFrame
     from av.audio.resampler import AudioResampler
     from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 
     WEBRTC_RUNTIME_AVAILABLE = True
 except Exception:
+    av = None  # type: ignore[assignment]
     AudioFrame = None  # type: ignore[assignment]
     AudioResampler = None  # type: ignore[assignment]
     MediaStreamTrack = object  # type: ignore[assignment]
@@ -101,23 +103,58 @@ def _pcm16_to_wav_bytes(
     return buf.getvalue()
 
 
-def _wav_to_pcm16_mono_16k(wav_bytes: bytes) -> bytes:
-    with wave.open(io.BytesIO(wav_bytes), "rb") as wav_reader:
-        channels = wav_reader.getnchannels()
-        sample_width = wav_reader.getsampwidth()
-        sample_rate = wav_reader.getframerate()
-        raw = wav_reader.readframes(wav_reader.getnframes())
+def _wav_to_pcm16_mono_16k(audio_bytes: bytes) -> bytes:
+    # Fast path for proper WAV payloads.
+    if audio_bytes.startswith(b"RIFF"):
+        with wave.open(io.BytesIO(audio_bytes), "rb") as wav_reader:
+            channels = wav_reader.getnchannels()
+            sample_width = wav_reader.getsampwidth()
+            sample_rate = wav_reader.getframerate()
+            raw = wav_reader.readframes(wav_reader.getnframes())
 
-    if sample_width != SAMPLE_WIDTH:
-        raw = audioop.lin2lin(raw, sample_width, SAMPLE_WIDTH)
-        sample_width = SAMPLE_WIDTH
-    if channels != 1:
-        raw = audioop.tomono(raw, sample_width, 0.5, 0.5)
-        channels = 1
-    if sample_rate != SAMPLE_RATE:
-        raw, _ = audioop.ratecv(raw, sample_width, channels, sample_rate, SAMPLE_RATE, None)
+        if sample_width != SAMPLE_WIDTH:
+            raw = audioop.lin2lin(raw, sample_width, SAMPLE_WIDTH)
+            sample_width = SAMPLE_WIDTH
+        if channels != 1:
+            raw = audioop.tomono(raw, sample_width, 0.5, 0.5)
+            channels = 1
+        if sample_rate != SAMPLE_RATE:
+            raw, _ = audioop.ratecv(raw, sample_width, channels, sample_rate, SAMPLE_RATE, None)
+        return raw
 
-    return raw
+    # Fallback: decode non-WAV responses (mp3/ogg/etc.) using PyAV.
+    if av is None or AudioResampler is None:
+        prefix = audio_bytes[:8].hex()
+        raise RuntimeError(f"TTS audio decode failed (non-RIFF payload: {prefix}).")
+
+    pcm_chunks: list[bytes] = []
+    resampler = AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
+
+    try:
+        with av.open(io.BytesIO(audio_bytes), mode="r") as container:
+            for frame in container.decode(audio=0):
+                converted = resampler.resample(frame)
+                frames = converted if isinstance(converted, list) else [converted]
+                for converted_frame in frames:
+                    if converted_frame is None:
+                        continue
+                    ndarray = converted_frame.to_ndarray()
+                    if ndarray.size == 0:
+                        continue
+                    if ndarray.dtype != np.int16:
+                        ndarray = ndarray.astype(np.int16)
+                    pcm_chunks.append(ndarray.tobytes())
+    except Exception as exc:
+        prefix = audio_bytes[:8].hex()
+        raise RuntimeError(
+            f"TTS audio decode failed (non-RIFF payload: {prefix}): {exc}"
+        ) from exc
+
+    if not pcm_chunks:
+        prefix = audio_bytes[:8].hex()
+        raise RuntimeError(f"TTS audio decode failed: no audio frames decoded ({prefix}).")
+
+    return b"".join(pcm_chunks)
 
 
 class SimpleVadSegmenter:
