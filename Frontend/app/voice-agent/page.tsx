@@ -56,6 +56,7 @@ const systemResponseFragments = [
 ]
 
 const recorderSegmentMs = 1600
+const utteranceSilenceWindowMs = 2200
 
 const ignoredCandidatePhrases = [
   "the speaker is speaking english",
@@ -78,6 +79,23 @@ function shouldIgnoreCandidateUtterance(text: string) {
   if (!normalized) return true
   if (normalized.length < 2) return true
   return ignoredCandidatePhrases.some((phrase) => normalized === phrase || normalized.includes(phrase))
+}
+
+function mergeCandidateUtterances(existingText: string, incomingText: string) {
+  const existing = existingText.trim()
+  const incoming = incomingText.trim()
+  if (!existing) return incoming
+  if (!incoming) return existing
+
+  const existingNormalized = normalizeTranscriptText(existing)
+  const incomingNormalized = normalizeTranscriptText(incoming)
+  if (!incomingNormalized) return existing
+  if (existingNormalized === incomingNormalized) return existing
+  if (incomingNormalized.startsWith(existingNormalized)) return incoming
+  if (existingNormalized.endsWith(incomingNormalized) || existingNormalized.endsWith(` ${incomingNormalized}`)) {
+    return existing
+  }
+  return `${existing} ${incoming}`.trim()
 }
 
 const topicLibrary = [
@@ -398,13 +416,17 @@ export default function VoiceAgentPage() {
   const recorderSegmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isTranscribingChunkRef = useRef(false)
   const pendingChunkRef = useRef<Blob | null>(null)
+  const pendingCandidateUtteranceRef = useRef("")
+  const pendingCandidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastCandidateUtteranceRef = useRef<string>("")
   const lastCandidateUtteranceAtRef = useRef<number>(0)
   const bargeInTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isCallActiveRef = useRef(false)
   const isMicOnRef = useRef(true)
   const isListeningRef = useRef(false)
+  const isProcessingRef = useRef(false)
   const isAISpeakingRef = useRef(false)
+  const isAwaitingResponseRef = useRef(false)
   const intentionalDisconnectRef = useRef(false)
   const isSuppressedByAIRef = useRef(false)
   const isBargeInWindowRef = useRef(false)
@@ -421,6 +443,10 @@ export default function VoiceAgentPage() {
   useEffect(() => {
     isListeningRef.current = isListening
   }, [isListening])
+
+  useEffect(() => {
+    isProcessingRef.current = isProcessing
+  }, [isProcessing])
 
   useEffect(() => {
     isAISpeakingRef.current = isAISpeaking
@@ -455,22 +481,32 @@ export default function VoiceAgentPage() {
     httpClientRef.current = new HTTPClient({
       serverUrl: voiceServerUrl,
       onPlaybackEnded: () => {
+        if (intentionalDisconnectRef.current || !isCallActiveRef.current) return
         if (bargeInWindowTimerRef.current) {
           clearTimeout(bargeInWindowTimerRef.current)
           bargeInWindowTimerRef.current = null
         }
         isSuppressedByAIRef.current = false
         isBargeInWindowRef.current = false
+        isAwaitingResponseRef.current = false
+        setIsProcessing(false)
         setIsAISpeaking(false)
-        setLiveTranscript("")
+        clearPendingCandidateUtterance(true)
         // AI finished naturally — short pause for echo tail, then resume mic
         setTimeout(() => {
-          if (isCallActiveRef.current && isMicOnRef.current && !isAISpeakingRef.current) {
+          if (
+            isCallActiveRef.current &&
+            isMicOnRef.current &&
+            !isAISpeakingRef.current &&
+            !isAwaitingResponseRef.current &&
+            !isProcessingRef.current
+          ) {
             void startSpeechRecognition()
           }
         }, 400)
       },
       onAIResponse: (response: string) => {
+        if (intentionalDisconnectRef.current) return
         const normalized = response.toLowerCase()
 
         setAiResponse(response)
@@ -487,6 +523,10 @@ export default function VoiceAgentPage() {
           return
         }
 
+        if (!isCallActiveRef.current) return
+
+        isAwaitingResponseRef.current = false
+        clearPendingCandidateUtterance(true)
         setIsProcessing(false)
         setIsAISpeaking(true)
         isSuppressedByAIRef.current = true
@@ -514,6 +554,10 @@ export default function VoiceAgentPage() {
         setIsCallActive(connected)
         setIsProcessing(false)
         setIsAISpeaking(false)
+        isAwaitingResponseRef.current = false
+        isSuppressedByAIRef.current = false
+        isBargeInWindowRef.current = false
+        clearPendingCandidateUtterance(true)
 
         if (connected) {
           intentionalDisconnectRef.current = false
@@ -529,6 +573,9 @@ export default function VoiceAgentPage() {
         if (!errorMessage.toLowerCase().includes("disconnected")) {
           setError(errorMessage)
         }
+        isAwaitingResponseRef.current = false
+        isSuppressedByAIRef.current = false
+        isBargeInWindowRef.current = false
         setIsProcessing(false)
         setIsAISpeaking(false)
       },
@@ -579,6 +626,13 @@ export default function VoiceAgentPage() {
         clearTimeout(bargeInTimeoutRef.current)
         bargeInTimeoutRef.current = null
       }
+
+      if (pendingCandidateTimerRef.current) {
+        clearTimeout(pendingCandidateTimerRef.current)
+        pendingCandidateTimerRef.current = null
+      }
+      pendingCandidateUtteranceRef.current = ""
+      isAwaitingResponseRef.current = false
     }
   }, [])
 
@@ -612,6 +666,17 @@ export default function VoiceAgentPage() {
     setLiveTranscript("")
   }
 
+  const clearPendingCandidateUtterance = (clearLiveTranscript = false) => {
+    if (pendingCandidateTimerRef.current) {
+      clearTimeout(pendingCandidateTimerRef.current)
+      pendingCandidateTimerRef.current = null
+    }
+    pendingCandidateUtteranceRef.current = ""
+    if (clearLiveTranscript) {
+      setLiveTranscript("")
+    }
+  }
+
   const handleBargeIn = async () => {
     // Kill the lockout timer so it doesn't restart mic on top of us
     if (bargeInWindowTimerRef.current) {
@@ -633,7 +698,8 @@ export default function VoiceAgentPage() {
 
   const processCandidateUtterance = async (text: string) => {
     const finalMessage = text.trim()
-    if (!finalMessage || !isMicOnRef.current) return
+    if (!finalMessage || !isMicOnRef.current || !isCallActiveRef.current) return
+    if (isAwaitingResponseRef.current || isProcessingRef.current) return
     if (shouldIgnoreCandidateUtterance(finalMessage)) return
 
     const normalized = normalizeTranscriptText(finalMessage)
@@ -648,8 +714,8 @@ export default function VoiceAgentPage() {
       await handleBargeIn()
     }
 
+    clearPendingCandidateUtterance()
     setUserSpeech(finalMessage)
-    setLiveTranscript("")
     setTranscriptEntries((current) => [
       ...current,
       {
@@ -665,14 +731,70 @@ export default function VoiceAgentPage() {
       bargeInTimeoutRef.current = null
     }
 
-    void httpClientRef.current?.sendTextMessage(finalMessage).catch(() => {
-      setError("Failed to send your message. Please check the voice server is running.")
-    })
+    isAwaitingResponseRef.current = true
+    setIsProcessing(true)
+    isSuppressedByAIRef.current = true
+    isBargeInWindowRef.current = false
+    stopSpeechRecognition()
+
+    void httpClientRef.current
+      ?.sendTextMessage(finalMessage)
+      .catch(() => {
+        setError("Failed to send your message. Please check the voice server is running.")
+      })
+      .finally(() => {
+        isAwaitingResponseRef.current = false
+        if (!isCallActiveRef.current || !isMicOnRef.current || intentionalDisconnectRef.current) return
+        if (!isAISpeakingRef.current) {
+          setIsProcessing(false)
+          isSuppressedByAIRef.current = false
+          isBargeInWindowRef.current = false
+          void startSpeechRecognition()
+        }
+      })
+  }
+
+  const flushPendingCandidateUtterance = async () => {
+    pendingCandidateTimerRef.current = null
+    const combinedUtterance = pendingCandidateUtteranceRef.current.trim()
+    if (!combinedUtterance) return
+    if (!isCallActiveRef.current || !isMicOnRef.current) {
+      clearPendingCandidateUtterance(true)
+      return
+    }
+    if (isAwaitingResponseRef.current || isProcessingRef.current) {
+      pendingCandidateTimerRef.current = setTimeout(() => {
+        void flushPendingCandidateUtterance()
+      }, utteranceSilenceWindowMs)
+      return
+    }
+
+    pendingCandidateUtteranceRef.current = ""
+    await processCandidateUtterance(combinedUtterance)
+  }
+
+  const queueCandidateUtteranceChunk = (text: string) => {
+    const chunk = text.trim()
+    if (!chunk || shouldIgnoreCandidateUtterance(chunk)) return
+    if (!isCallActiveRef.current || !isMicOnRef.current) return
+    if (isProcessingRef.current && !isAISpeakingRef.current) return
+
+    const merged = mergeCandidateUtterances(pendingCandidateUtteranceRef.current, chunk)
+    pendingCandidateUtteranceRef.current = merged
+    setLiveTranscript(merged)
+
+    if (pendingCandidateTimerRef.current) {
+      clearTimeout(pendingCandidateTimerRef.current)
+    }
+    pendingCandidateTimerRef.current = setTimeout(() => {
+      void flushPendingCandidateUtterance()
+    }, utteranceSilenceWindowMs)
   }
 
   const processAudioChunk = async (audioChunk: Blob) => {
     if (!httpClientRef.current || !isCallActiveRef.current || !isMicOnRef.current) return
     if (audioChunk.size < 2048) return
+    if (isProcessingRef.current && !isAISpeakingRef.current) return
 
     if (isTranscribingChunkRef.current) {
       pendingChunkRef.current = audioChunk
@@ -683,9 +805,7 @@ export default function VoiceAgentPage() {
     try {
       const text = await httpClientRef.current.transcribeAudio(audioChunk)
       if (!text || shouldIgnoreCandidateUtterance(text)) return
-
-      setLiveTranscript(text)
-      await processCandidateUtterance(text)
+      queueCandidateUtteranceChunk(text)
     } catch {
       // HTTPClient.onError already maps and surfaces the network/backend issue.
     } finally {
@@ -795,6 +915,8 @@ export default function VoiceAgentPage() {
   }
 
   const startSpeechRecognition = async () => {
+    if (isProcessingRef.current && !isAISpeakingRef.current) return
+    if (!isMicOnRef.current) return
     try {
       await startBackendMicCapture()
     } catch {
@@ -806,6 +928,8 @@ export default function VoiceAgentPage() {
     if (!httpClientRef.current || !speechSupported) return
 
     intentionalDisconnectRef.current = false
+    isAwaitingResponseRef.current = false
+    clearPendingCandidateUtterance(true)
     setError("")
     setUserSpeech("")
     setAiResponse("")
@@ -834,13 +958,18 @@ export default function VoiceAgentPage() {
 
   const handleEndCall = async () => {
     intentionalDisconnectRef.current = true
-    setLiveTranscript("")
+    isCallActiveRef.current = false
+    isMicOnRef.current = false
+    isAwaitingResponseRef.current = false
+    clearPendingCandidateUtterance(true)
+
+    const shouldInterruptBackend = isAISpeakingRef.current || isProcessingRef.current
 
     if (bargeInWindowTimerRef.current) {
       clearTimeout(bargeInWindowTimerRef.current)
       bargeInWindowTimerRef.current = null
     }
-    isSuppressedByAIRef.current = false
+    isSuppressedByAIRef.current = true
     isBargeInWindowRef.current = false
 
     if (bargeInTimeoutRef.current) {
@@ -848,18 +977,19 @@ export default function VoiceAgentPage() {
       bargeInTimeoutRef.current = null
     }
 
-    if (isAISpeakingRef.current) {
-      await httpClientRef.current?.interrupt()
-    }
-
     httpClientRef.current?.stopAudioPlayback()
     stopSpeechRecognition()
     httpClientRef.current?.disconnect()
+
+    if (shouldInterruptBackend) {
+      void httpClientRef.current?.interrupt()
+    }
 
     setIsConnected(false)
     setIsAISpeaking(false)
     setIsProcessing(false)
     setIsCallActive(false)
+    setIsMicOn(false)
     setIsConnecting(false)
     setSessionEndedAt(Date.now())
     setHasCompletedSession(true)
@@ -881,6 +1011,7 @@ export default function VoiceAgentPage() {
     }
 
     stopSpeechRecognition()
+    clearPendingCandidateUtterance(true)
 
     if (bargeInTimeoutRef.current) {
       clearTimeout(bargeInTimeoutRef.current)

@@ -23,6 +23,8 @@ export class HTTPClient {
   private onError: (error: string) => void
   private onPlaybackEnded: (() => void) | undefined
   private currentAudio: HTMLAudioElement | null = null
+  private isSessionActive = false
+  private pendingControllers = new Set<AbortController>()
 
   constructor(config: {
     serverUrl?: string
@@ -39,32 +41,42 @@ export class HTTPClient {
   }
 
   async connect(): Promise<void> {
+    const controller = this.createRequestController()
     try {
-      const response = await fetch(`${this.serverUrl}/health`)
+      const response = await fetch(`${this.serverUrl}/health`, { signal: controller.signal })
       if (response.ok) {
+        this.isSessionActive = true
         this.onConnectionChange(true)
         this.onAIResponse("Connected! Ready to chat.")
       } else {
         throw new Error("Server health check failed")
       }
     } catch (error) {
+      if (this.isAbortError(error)) return
       this.onError(sanitizeError(error))
       throw error
+    } finally {
+      this.pendingControllers.delete(controller)
     }
   }
 
   async sendAudio(audioBlob: Blob): Promise<void> {
+    if (!this.isSessionActive) return
+    const controller = this.createRequestController()
     try {
       const audioBase64 = await this.blobToBase64(audioBlob)
       const response = await fetch(`${this.serverUrl}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           audio_base64: audioBase64.split(",")[1],
         }),
       })
+      if (!this.isSessionActive || controller.signal.aborted) return
       if (!response.ok) throw new Error(`Server error: ${response.status}`)
       const data = await response.json()
+      if (!this.isSessionActive || controller.signal.aborted) return
       if (data.error) throw new Error(data.error)
       this.onAIResponse(data.text_response)
       if (data.audio_base64) {
@@ -74,26 +86,37 @@ export class HTTPClient {
         this.onPlaybackEnded?.()
       }
     } catch (error) {
+      if (this.isAbortError(error)) return
       this.onError(sanitizeError(error))
+    } finally {
+      this.pendingControllers.delete(controller)
     }
   }
 
   async transcribeAudio(audioBlob: Blob): Promise<string> {
+    if (!this.isSessionActive) return ""
+    const controller = this.createRequestController()
     try {
       const formData = new FormData()
       formData.append("audio", audioBlob, this.getAudioFilename(audioBlob))
 
       const response = await fetch(`${this.serverUrl}/transcribe`, {
         method: "POST",
+        signal: controller.signal,
         body: formData,
       })
+      if (!this.isSessionActive || controller.signal.aborted) return ""
       if (!response.ok) throw new Error(`Server error: ${response.status}`)
       const data = await response.json()
+      if (!this.isSessionActive || controller.signal.aborted) return ""
       if (data.error) throw new Error(data.error)
       return String(data.transcribed_text || "").trim()
     } catch (error) {
+      if (this.isAbortError(error)) return ""
       this.onError(sanitizeError(error))
       throw error
+    } finally {
+      this.pendingControllers.delete(controller)
     }
   }
 
@@ -106,15 +129,20 @@ export class HTTPClient {
   }
 
   async sendTextMessage(text: string): Promise<void> {
+    if (!this.isSessionActive) return
+    const controller = this.createRequestController()
     try {
       this.stopAudioPlayback()
       const response = await fetch(`${this.serverUrl}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({ text_input: text }),
       })
+      if (!this.isSessionActive || controller.signal.aborted) return
       if (!response.ok) throw new Error(`Server error: ${response.status}`)
       const data = await response.json()
+      if (!this.isSessionActive || controller.signal.aborted) return
       if (data.error) throw new Error(data.error)
       this.onAIResponse(data.text_response)
       if (data.audio_base64) {
@@ -124,7 +152,10 @@ export class HTTPClient {
         this.onPlaybackEnded?.()
       }
     } catch (error) {
+      if (this.isAbortError(error)) return
       this.onError(sanitizeError(error))
+    } finally {
+      this.pendingControllers.delete(controller)
     }
   }
 
@@ -138,6 +169,7 @@ export class HTTPClient {
   }
 
   private playAudioResponse(audioBase64: string): void {
+    if (!this.isSessionActive) return
     try {
       this.stopAudioPlayback()
       const audioBlob = this.base64ToBlob(audioBase64, "audio/wav")
@@ -146,11 +178,13 @@ export class HTTPClient {
       this.currentAudio.onended = () => {
         URL.revokeObjectURL(audioUrl)
         this.currentAudio = null
+        if (!this.isSessionActive) return
         this.onPlaybackEnded?.()
       }
       this.currentAudio.onerror = () => {
         URL.revokeObjectURL(audioUrl)
         this.currentAudio = null
+        if (!this.isSessionActive) return
         this.onPlaybackEnded?.()
       }
       this.currentAudio.play().catch((err) => {
@@ -187,26 +221,56 @@ export class HTTPClient {
   }
 
   disconnect(): void {
+    this.isSessionActive = false
+    this.cancelPendingRequests()
+    this.stopAudioPlayback()
     this.onConnectionChange(false)
   }
 
   async interrupt(): Promise<void> {
+    const controller = this.createRequestController()
     try {
       await fetch(`${this.serverUrl}/interrupt`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
       })
     } catch (error) {
+      if (this.isAbortError(error)) return
       console.error("Failed to send barge-in signal:", error)
+    } finally {
+      this.pendingControllers.delete(controller)
     }
   }
 
   async getSpeakingStatus(): Promise<{ is_speaking: boolean; barge_in_active: boolean }> {
+    const controller = this.createRequestController()
     try {
-      const response = await fetch(`${this.serverUrl}/speaking_status`)
+      const response = await fetch(`${this.serverUrl}/speaking_status`, { signal: controller.signal })
       return await response.json()
     } catch {
       return { is_speaking: false, barge_in_active: false }
+    } finally {
+      this.pendingControllers.delete(controller)
     }
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return error instanceof DOMException
+      ? error.name === "AbortError"
+      : String(error).toLowerCase().includes("abort")
+  }
+
+  private createRequestController(): AbortController {
+    const controller = new AbortController()
+    this.pendingControllers.add(controller)
+    return controller
+  }
+
+  private cancelPendingRequests(): void {
+    for (const controller of this.pendingControllers) {
+      controller.abort()
+    }
+    this.pendingControllers.clear()
   }
 }
