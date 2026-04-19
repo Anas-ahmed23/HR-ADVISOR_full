@@ -90,8 +90,6 @@ const systemResponseFragments = [
   "conversation ended",
 ]
 
-const MAX_SPEECH_NETWORK_RETRIES = 4
-
 const topicLibrary = [
   {
     label: "Technical depth",
@@ -402,6 +400,7 @@ export default function VoiceAgentPage() {
   const [sessionEndedAt, setSessionEndedAt] = useState<number | null>(null)
   const [hasCompletedSession, setHasCompletedSession] = useState(false)
   const [clockTick, setClockTick] = useState(Date.now())
+  const voiceServerUrl = process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000"
 
   const httpClientRef = useRef<HTTPClient | null>(null)
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null)
@@ -415,9 +414,50 @@ export default function VoiceAgentPage() {
   const isSuppressedByAIRef = useRef(false)
   const isBargeInWindowRef = useRef(false)
   const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const speechNetworkRetryCountRef = useRef(0)
-  const speechNetworkRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastSpeechErrorRef = useRef<string | null>(null)
+
+  const detectBrowser = () => {
+    if (typeof navigator === "undefined") return "Unknown"
+    const ua = navigator.userAgent
+    if (ua.includes("Edg/")) return "Edge"
+    if (ua.includes("Chrome/")) return "Chrome"
+    if (ua.includes("Firefox/")) return "Firefox"
+    if (ua.includes("Safari/") && !ua.includes("Chrome/")) return "Safari"
+    return "Unknown"
+  }
+
+  const runSpeechNetworkDiagnostics = async () => {
+    const browser = detectBrowser()
+    const online = typeof navigator !== "undefined" ? navigator.onLine : false
+    const secureContext = typeof window !== "undefined" ? window.isSecureContext : false
+
+    let microphonePermission = "unknown"
+    try {
+      if (typeof navigator !== "undefined" && "permissions" in navigator && typeof navigator.permissions?.query === "function") {
+        const permission = await navigator.permissions.query({ name: "microphone" as PermissionName })
+        microphonePermission = permission.state
+      }
+    } catch {
+      // ignore permissions API errors
+    }
+
+    let backendHealth = "unreachable"
+    try {
+      const response = await fetch(`${voiceServerUrl}/health`)
+      backendHealth = String(response.status)
+    } catch {
+      // backend diagnostics are best-effort only
+    }
+
+    const hints: string[] = []
+    if (!online) hints.push("Device appears offline.")
+    if (!secureContext) hints.push("Speech API requires HTTPS/secure context.")
+    if (microphonePermission === "denied") hints.push("Microphone permission is denied.")
+    if (browser !== "Chrome" && browser !== "Edge") hints.push("Use Chrome or Edge for stable Web Speech support.")
+    if (backendHealth === "unreachable") hints.push("Voice backend is not reachable from the browser.")
+    hints.push("If these look correct, your network/VPN/ad blocker is likely blocking the browser speech service.")
+
+    return `Speech network diagnostic: browser=${browser}; online=${online ? "yes" : "no"}; secure=${secureContext ? "yes" : "no"}; mic=${microphonePermission}; backendHealth=${backendHealth}. ${hints.join(" ")}`
+  }
 
   useEffect(() => {
     isCallActiveRef.current = isCallActive
@@ -462,7 +502,7 @@ export default function VoiceAgentPage() {
     }
 
     httpClientRef.current = new HTTPClient({
-      serverUrl: process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000",
+      serverUrl: voiceServerUrl,
       onPlaybackEnded: () => {
         if (bargeInWindowTimerRef.current) {
           clearTimeout(bargeInWindowTimerRef.current)
@@ -575,22 +615,10 @@ export default function VoiceAgentPage() {
         clearTimeout(bargeInTimeoutRef.current)
         bargeInTimeoutRef.current = null
       }
-
-      if (speechNetworkRetryTimerRef.current) {
-        clearTimeout(speechNetworkRetryTimerRef.current)
-        speechNetworkRetryTimerRef.current = null
-      }
     }
   }, [])
 
   const stopSpeechRecognition = () => {
-    if (speechNetworkRetryTimerRef.current) {
-      clearTimeout(speechNetworkRetryTimerRef.current)
-      speechNetworkRetryTimerRef.current = null
-    }
-    speechNetworkRetryCountRef.current = 0
-    lastSpeechErrorRef.current = null
-
     if (!recognitionRef.current) return
 
     try {
@@ -639,19 +667,10 @@ export default function VoiceAgentPage() {
       recognition.interimResults = true
       recognition.lang = "en-US"
 
-      recognition.onstart = () => {
-        setIsListening(true)
-        lastSpeechErrorRef.current = null
-        speechNetworkRetryCountRef.current = 0
-        if (speechNetworkRetryTimerRef.current) {
-          clearTimeout(speechNetworkRetryTimerRef.current)
-          speechNetworkRetryTimerRef.current = null
-        }
-      }
+      recognition.onstart = () => setIsListening(true)
 
       recognition.onend = () => {
         setIsListening(false)
-        if (lastSpeechErrorRef.current === "network") return
 
         // Do NOT auto-restart during lockout — barge-in window timer or onPlaybackEnded will restart
         if (isCallActiveRef.current && isMicOnRef.current && !isSuppressedByAIRef.current) {
@@ -723,7 +742,6 @@ export default function VoiceAgentPage() {
       }
 
       recognition.onerror = (event: SpeechRecognitionErrorLike) => {
-        lastSpeechErrorRef.current = event.error
         speechStartTimeRef.current = 0
         setLiveTranscript("")
 
@@ -733,48 +751,25 @@ export default function VoiceAgentPage() {
         }
 
         // Browsers can emit "aborted" during intentional stop/restart cycles.
-        if (event.error === "no-speech" || event.error === "aborted") {
-          lastSpeechErrorRef.current = null
-          return
-        }
+        if (event.error === "no-speech" || event.error === "aborted") return
 
         if (event.error === "not-allowed" || event.error === "permission-denied") {
           setError("Microphone permission denied.")
         } else if (event.error === "audio-capture") {
           setError("No microphone was found.")
         } else if (event.error === "network") {
+          console.error("[SpeechRecognition] network error", {
+            online: typeof navigator !== "undefined" ? navigator.onLine : "unknown",
+            secure: typeof window !== "undefined" ? window.isSecureContext : "unknown",
+            voiceServerUrl,
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+          })
+
           setIsListening(false)
-          speechNetworkRetryCountRef.current += 1
-          const attempt = speechNetworkRetryCountRef.current
-
-          if (attempt <= MAX_SPEECH_NETWORK_RETRIES) {
-            const retryDelayMs = Math.min(4000, 800 * attempt)
-            setError(`Speech recognition lost network access. Reconnecting (${attempt}/${MAX_SPEECH_NETWORK_RETRIES})...`)
-
-            if (speechNetworkRetryTimerRef.current) {
-              clearTimeout(speechNetworkRetryTimerRef.current)
-            }
-
-            speechNetworkRetryTimerRef.current = setTimeout(() => {
-              speechNetworkRetryTimerRef.current = null
-
-              if (
-                recognitionRef.current &&
-                isCallActiveRef.current &&
-                isMicOnRef.current &&
-                !isListeningRef.current &&
-                !isSuppressedByAIRef.current
-              ) {
-                try {
-                  recognitionRef.current.start()
-                } catch {
-                  // retry path will handle follow-up attempts
-                }
-              }
-            }, retryDelayMs)
-          } else {
-            setError("Speech recognition service is unreachable on this network. Try Chrome/Edge without VPN/ad blockers, or switch networks.")
-          }
+          setError("Speech recognition network issue detected. Running diagnostics...")
+          void runSpeechNetworkDiagnostics()
+            .then((message) => setError(message))
+            .catch(() => setError("Speech recognition network issue detected, and diagnostics could not complete."))
           return
         } else if (event.error === "service-not-allowed") {
           setError("Speech recognition service is blocked for this browser profile. Use Chrome or Edge and allow speech services.")
@@ -797,12 +792,6 @@ export default function VoiceAgentPage() {
     if (!httpClientRef.current || !speechSupported) return
 
     intentionalDisconnectRef.current = false
-    speechNetworkRetryCountRef.current = 0
-    lastSpeechErrorRef.current = null
-    if (speechNetworkRetryTimerRef.current) {
-      clearTimeout(speechNetworkRetryTimerRef.current)
-      speechNetworkRetryTimerRef.current = null
-    }
     setError("")
     setUserSpeech("")
     setAiResponse("")
@@ -846,13 +835,6 @@ export default function VoiceAgentPage() {
       bargeInTimeoutRef.current = null
     }
 
-    if (speechNetworkRetryTimerRef.current) {
-      clearTimeout(speechNetworkRetryTimerRef.current)
-      speechNetworkRetryTimerRef.current = null
-    }
-    speechNetworkRetryCountRef.current = 0
-    lastSpeechErrorRef.current = null
-
     if (isAISpeakingRef.current) {
       await httpClientRef.current?.interrupt()
     }
@@ -874,12 +856,6 @@ export default function VoiceAgentPage() {
   const handleToggleMic = () => {
     const nextMicState = !isMicOn
     setIsMicOn(nextMicState)
-    if (speechNetworkRetryTimerRef.current) {
-      clearTimeout(speechNetworkRetryTimerRef.current)
-      speechNetworkRetryTimerRef.current = null
-    }
-    speechNetworkRetryCountRef.current = 0
-    lastSpeechErrorRef.current = null
 
     if (nextMicState && isCallActive) {
       setTimeout(() => {
