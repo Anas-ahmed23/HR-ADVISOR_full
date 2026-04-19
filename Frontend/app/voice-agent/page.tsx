@@ -28,41 +28,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { HTTPClient } from "@/lib/http-client"
 import { useAnalysis } from "@/context/analysis-context"
 
-type BrowserSpeechRecognition = {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  onstart: (() => void) | null
-  onend: (() => void) | null
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onerror: ((event: SpeechRecognitionErrorLike) => void) | null
-  start: () => void
-  stop: () => void
-}
-
-type SpeechRecognitionResultLike = {
-  isFinal: boolean
-  0: {
-    transcript: string
-  }
-}
-
-type SpeechRecognitionEventLike = {
-  resultIndex: number
-  results: ArrayLike<SpeechRecognitionResultLike>
-}
-
-type SpeechRecognitionErrorLike = {
-  error: string
-}
-
-type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition
-
-type SpeechRecognitionWindow = Window & {
-  SpeechRecognition?: SpeechRecognitionConstructor
-  webkitSpeechRecognition?: SpeechRecognitionConstructor
-}
-
 type TranscriptEntry = {
   id: string
   speaker: "Candidate" | "AI"
@@ -403,8 +368,12 @@ export default function VoiceAgentPage() {
   const voiceServerUrl = process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000"
 
   const httpClientRef = useRef<HTTPClient | null>(null)
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null)
-  const speechStartTimeRef = useRef<number>(0)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const isTranscribingChunkRef = useRef(false)
+  const pendingChunkRef = useRef<Blob | null>(null)
+  const lastCandidateUtteranceRef = useRef<string>("")
+  const lastCandidateUtteranceAtRef = useRef<number>(0)
   const bargeInTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isCallActiveRef = useRef(false)
   const isMicOnRef = useRef(true)
@@ -414,50 +383,6 @@ export default function VoiceAgentPage() {
   const isSuppressedByAIRef = useRef(false)
   const isBargeInWindowRef = useRef(false)
   const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const detectBrowser = () => {
-    if (typeof navigator === "undefined") return "Unknown"
-    const ua = navigator.userAgent
-    if (ua.includes("Edg/")) return "Edge"
-    if (ua.includes("Chrome/")) return "Chrome"
-    if (ua.includes("Firefox/")) return "Firefox"
-    if (ua.includes("Safari/") && !ua.includes("Chrome/")) return "Safari"
-    return "Unknown"
-  }
-
-  const runSpeechNetworkDiagnostics = async () => {
-    const browser = detectBrowser()
-    const online = typeof navigator !== "undefined" ? navigator.onLine : false
-    const secureContext = typeof window !== "undefined" ? window.isSecureContext : false
-
-    let microphonePermission = "unknown"
-    try {
-      if (typeof navigator !== "undefined" && "permissions" in navigator && typeof navigator.permissions?.query === "function") {
-        const permission = await navigator.permissions.query({ name: "microphone" as PermissionName })
-        microphonePermission = permission.state
-      }
-    } catch {
-      // ignore permissions API errors
-    }
-
-    let backendHealth = "unreachable"
-    try {
-      const response = await fetch(`${voiceServerUrl}/health`)
-      backendHealth = String(response.status)
-    } catch {
-      // backend diagnostics are best-effort only
-    }
-
-    const hints: string[] = []
-    if (!online) hints.push("Device appears offline.")
-    if (!secureContext) hints.push("Speech API requires HTTPS/secure context.")
-    if (microphonePermission === "denied") hints.push("Microphone permission is denied.")
-    if (browser !== "Chrome" && browser !== "Edge") hints.push("Use Chrome or Edge for stable Web Speech support.")
-    if (backendHealth === "unreachable") hints.push("Voice backend is not reachable from the browser.")
-    hints.push("If these look correct, your network/VPN/ad blocker is likely blocking the browser speech service.")
-
-    return `Speech network diagnostic: browser=${browser}; online=${online ? "yes" : "no"}; secure=${secureContext ? "yes" : "no"}; mic=${microphonePermission}; backendHealth=${backendHealth}. ${hints.join(" ")}`
-  }
 
   useEffect(() => {
     isCallActiveRef.current = isCallActive
@@ -584,14 +509,12 @@ export default function VoiceAgentPage() {
     })
 
     if (typeof window !== "undefined") {
-      const speechWindow = window as SpeechRecognitionWindow
-      const SpeechRecognitionCtor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition
+      const hasMediaRecorder = typeof MediaRecorder !== "undefined"
+      const hasGetUserMedia = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia
 
-      if (SpeechRecognitionCtor) {
-        recognitionRef.current = new SpeechRecognitionCtor()
-      } else {
+      if (!hasMediaRecorder || !hasGetUserMedia) {
         setSpeechSupported(false)
-        setError("Speech recognition is not supported in this browser. Use Chrome or Edge.")
+        setError("Microphone capture is not supported in this browser.")
       }
     }
 
@@ -603,12 +526,22 @@ export default function VoiceAgentPage() {
         bargeInWindowTimerRef.current = null
       }
 
-      if (recognitionRef.current) {
+      if (mediaRecorderRef.current) {
         try {
-          recognitionRef.current.stop()
+          if (mediaRecorderRef.current.state !== "inactive") {
+            mediaRecorderRef.current.stop()
+          }
         } catch {
           // ignore cleanup stop errors
         }
+        mediaRecorderRef.current = null
+      }
+
+      if (mediaStreamRef.current) {
+        for (const track of mediaStreamRef.current.getTracks()) {
+          track.stop()
+        }
+        mediaStreamRef.current = null
       }
 
       if (bargeInTimeoutRef.current) {
@@ -619,15 +552,28 @@ export default function VoiceAgentPage() {
   }, [])
 
   const stopSpeechRecognition = () => {
-    if (!recognitionRef.current) return
-
-    try {
-      recognitionRef.current.stop()
-      setIsListening(false)
-      setLiveTranscript("")
-    } catch {
-      // ignore repeated stop calls from browsers that reject them
+    if (mediaRecorderRef.current) {
+      try {
+        if (mediaRecorderRef.current.state !== "inactive") {
+          mediaRecorderRef.current.stop()
+        }
+      } catch {
+        // ignore repeated stop calls from browsers that reject them
+      }
+      mediaRecorderRef.current = null
     }
+
+    if (mediaStreamRef.current) {
+      for (const track of mediaStreamRef.current.getTracks()) {
+        track.stop()
+      }
+      mediaStreamRef.current = null
+    }
+
+    pendingChunkRef.current = null
+    isTranscribingChunkRef.current = false
+    setIsListening(false)
+    setLiveTranscript("")
   }
 
   const handleBargeIn = async () => {
@@ -642,7 +588,6 @@ export default function VoiceAgentPage() {
     isBargeInWindowRef.current = false
     setIsAISpeaking(false)
     setAiResponse("")
-    speechStartTimeRef.current = 0
 
     if (bargeInTimeoutRef.current) {
       clearTimeout(bargeInTimeoutRef.current)
@@ -650,141 +595,122 @@ export default function VoiceAgentPage() {
     }
   }
 
-  const startSpeechRecognition = async () => {
-    const recognition = recognitionRef.current
-    if (!recognition) return
+  const processCandidateUtterance = async (text: string) => {
+    const finalMessage = text.trim()
+    if (!finalMessage || !isMicOnRef.current) return
 
+    const normalized = finalMessage.toLowerCase()
+    const now = Date.now()
+    if (normalized === lastCandidateUtteranceRef.current && now - lastCandidateUtteranceAtRef.current < 2200) {
+      return
+    }
+    lastCandidateUtteranceRef.current = normalized
+    lastCandidateUtteranceAtRef.current = now
+
+    if (isAISpeakingRef.current && isMicOnRef.current) {
+      await handleBargeIn()
+    }
+
+    setUserSpeech(finalMessage)
+    setLiveTranscript("")
+    setTranscriptEntries((current) => [
+      ...current,
+      {
+        id: `candidate-${Date.now()}-${current.length}`,
+        speaker: "Candidate",
+        text: finalMessage,
+        timestamp: Date.now(),
+      },
+    ])
+
+    if (bargeInTimeoutRef.current) {
+      clearTimeout(bargeInTimeoutRef.current)
+      bargeInTimeoutRef.current = null
+    }
+
+    void httpClientRef.current?.sendTextMessage(finalMessage).catch(() => {
+      setError("Failed to send your message. Please check the voice server is running.")
+    })
+  }
+
+  const processAudioChunk = async (audioChunk: Blob) => {
+    if (!httpClientRef.current || !isCallActiveRef.current || !isMicOnRef.current) return
+    if (audioChunk.size < 2048) return
+
+    if (isTranscribingChunkRef.current) {
+      pendingChunkRef.current = audioChunk
+      return
+    }
+
+    isTranscribingChunkRef.current = true
     try {
-      if (isListeningRef.current) {
-        stopSpeechRecognition()
-        await new Promise((resolve) => setTimeout(resolve, 200))
-      }
+      const text = await httpClientRef.current.transcribeAudio(audioChunk)
+      if (!text) return
 
-      setError("")
-      await new Promise((resolve) => setTimeout(resolve, 200))
-
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = "en-US"
-
-      recognition.onstart = () => setIsListening(true)
-
-      recognition.onend = () => {
-        setIsListening(false)
-
-        // Do NOT auto-restart during lockout — barge-in window timer or onPlaybackEnded will restart
-        if (isCallActiveRef.current && isMicOnRef.current && !isSuppressedByAIRef.current) {
-          // Shorter delay in barge-in window so watchdog stays responsive
-          const restartDelay = isBargeInWindowRef.current ? 300 : 1000
-          bargeInTimeoutRef.current = setTimeout(() => {
-            if (
-              recognitionRef.current &&
-              isCallActiveRef.current &&
-              isMicOnRef.current &&
-              !isListeningRef.current &&
-              !isSuppressedByAIRef.current
-            ) {
-              recognitionRef.current.start()
-            }
-          }, restartDelay)
-        }
-      }
-
-      recognition.onresult = (event: SpeechRecognitionEventLike) => {
-        let finalTranscript = ""
-        let interimTranscript = ""
-
-        for (let index = event.resultIndex; index < event.results.length; index += 1) {
-          const transcript = event.results[index][0].transcript
-          if (event.results[index].isFinal) finalTranscript += transcript
-          else interimTranscript += transcript
-        }
-
-        setLiveTranscript(interimTranscript.trim())
-
-        if (interimTranscript.trim().length > 0 && isAISpeakingRef.current && isMicOnRef.current) {
-          const currentTime = Date.now()
-          if (!speechStartTimeRef.current) speechStartTimeRef.current = currentTime
-
-          if (currentTime - speechStartTimeRef.current > 500) {
-            void handleBargeIn()
-            return
-          }
-        } else if (!interimTranscript.trim()) {
-          speechStartTimeRef.current = 0
-        }
-
-        if (finalTranscript.trim() && isMicOnRef.current && !isAISpeakingRef.current) {
-          const finalMessage = finalTranscript.trim()
-          setUserSpeech(finalMessage)
-          setLiveTranscript("")
-          setTranscriptEntries((current) => [
-            ...current,
-            {
-              id: `candidate-${Date.now()}-${current.length}`,
-              speaker: "Candidate",
-              text: finalMessage,
-              timestamp: Date.now(),
-            },
-          ])
-
-          speechStartTimeRef.current = 0
-
-          if (bargeInTimeoutRef.current) {
-            clearTimeout(bargeInTimeoutRef.current)
-            bargeInTimeoutRef.current = null
-          }
-
-          void httpClientRef.current?.sendTextMessage(finalMessage).catch(() => {
-            setError("Failed to send your message. Please check the voice server is running.")
-          })
-        }
-      }
-
-      recognition.onerror = (event: SpeechRecognitionErrorLike) => {
-        speechStartTimeRef.current = 0
-        setLiveTranscript("")
-
-        if (bargeInTimeoutRef.current) {
-          clearTimeout(bargeInTimeoutRef.current)
-          bargeInTimeoutRef.current = null
-        }
-
-        // Browsers can emit "aborted" during intentional stop/restart cycles.
-        if (event.error === "no-speech" || event.error === "aborted") return
-
-        if (event.error === "not-allowed" || event.error === "permission-denied") {
-          setError("Microphone permission denied.")
-        } else if (event.error === "audio-capture") {
-          setError("No microphone was found.")
-        } else if (event.error === "network") {
-          console.error("[SpeechRecognition] network error", {
-            online: typeof navigator !== "undefined" ? navigator.onLine : "unknown",
-            secure: typeof window !== "undefined" ? window.isSecureContext : "unknown",
-            voiceServerUrl,
-            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
-          })
-
-          setIsListening(false)
-          setError("Speech recognition network issue detected. Running diagnostics...")
-          void runSpeechNetworkDiagnostics()
-            .then((message) => setError(message))
-            .catch(() => setError("Speech recognition network issue detected, and diagnostics could not complete."))
-          return
-        } else if (event.error === "service-not-allowed") {
-          setError("Speech recognition service is blocked for this browser profile. Use Chrome or Edge and allow speech services.")
-        } else if (event.error === "language-not-supported") {
-          setError("Speech recognition language is not supported in this browser.")
-        } else {
-          setError(`Speech recognition error: ${event.error}. Please refresh and try again.`)
-        }
-
-        setIsListening(false)
-      }
-
-      recognition.start()
+      setLiveTranscript(text)
+      await processCandidateUtterance(text)
     } catch {
-      setError("Could not start speech recognition. Please refresh and try again.")
+      // HTTPClient.onError already maps and surfaces the network/backend issue.
+    } finally {
+      isTranscribingChunkRef.current = false
+      if (pendingChunkRef.current) {
+        const pending = pendingChunkRef.current
+        pendingChunkRef.current = null
+        void processAudioChunk(pending)
+      }
+    }
+  }
+
+  const startBackendMicCapture = async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setSpeechSupported(false)
+      setError("Microphone capture is not supported in this browser.")
+      return
+    }
+
+    if (isListeningRef.current) {
+      stopSpeechRecognition()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+
+    setError("")
+    setLiveTranscript("")
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    })
+    mediaStreamRef.current = stream
+
+    const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+    const mimeType = mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate))
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+
+    recorder.onstart = () => setIsListening(true)
+    recorder.onstop = () => setIsListening(false)
+    recorder.onerror = () => {
+      setIsListening(false)
+      setError("Microphone capture failed. Please re-check microphone permissions.")
+    }
+    recorder.ondataavailable = (event) => {
+      if (!event.data || event.data.size === 0) return
+      if (!isCallActiveRef.current || !isMicOnRef.current) return
+      if (isSuppressedByAIRef.current && !isBargeInWindowRef.current) return
+      void processAudioChunk(event.data)
+    }
+
+    mediaRecorderRef.current = recorder
+    recorder.start(1500)
+  }
+
+  const startSpeechRecognition = async () => {
+    try {
+      await startBackendMicCapture()
+    } catch {
+      setError("Could not start microphone capture. Please check permissions and try again.")
     }
   }
 
@@ -820,7 +746,6 @@ export default function VoiceAgentPage() {
 
   const handleEndCall = async () => {
     intentionalDisconnectRef.current = true
-    speechStartTimeRef.current = 0
     setLiveTranscript("")
 
     if (bargeInWindowTimerRef.current) {
@@ -868,7 +793,6 @@ export default function VoiceAgentPage() {
     }
 
     stopSpeechRecognition()
-    speechStartTimeRef.current = 0
 
     if (bargeInTimeoutRef.current) {
       clearTimeout(bargeInTimeoutRef.current)
@@ -1145,7 +1069,7 @@ export default function VoiceAgentPage() {
                     <ul className="mt-3 space-y-2.5 text-xs text-white/52">
                       {[
                         "Keep the voice backend running.",
-                        "Use Chrome or Edge for speech recognition.",
+                        "Allow microphone capture in your browser.",
                         "Grant mic permission before starting.",
                       ].map((item) => (
                         <li key={item} className="flex gap-2.5">
@@ -1177,7 +1101,7 @@ export default function VoiceAgentPage() {
                   <div className="text-base font-semibold text-white">Preparing the session</div>
                 </div>
                 <div className="mt-2 text-sm leading-6 text-white/58">
-                  Checking backend availability and initializing speech recognition.
+                  Checking backend availability and initializing microphone capture.
                 </div>
               </div>
             )}

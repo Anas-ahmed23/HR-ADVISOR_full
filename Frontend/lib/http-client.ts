@@ -78,6 +78,25 @@ export class HTTPClient {
     }
   }
 
+  async transcribeAudio(audioBlob: Blob): Promise<string> {
+    try {
+      const formData = new FormData()
+      formData.append("audio", audioBlob, "chunk.webm")
+
+      const response = await fetch(`${this.serverUrl}/transcribe`, {
+        method: "POST",
+        body: formData,
+      })
+      if (!response.ok) throw new Error(`Server error: ${response.status}`)
+      const data = await response.json()
+      if (data.error) throw new Error(data.error)
+      return String(data.transcribed_text || "").trim()
+    } catch (error) {
+      this.onError(sanitizeError(error))
+      throw error
+    }
+  }
+
   async sendTextMessage(text: string): Promise<void> {
     try {
       this.stopAudioPlayback()

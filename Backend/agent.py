@@ -353,7 +353,7 @@ def llm_reply(user_text: str) -> str:
 # STT  (Azure GPT-4o Transcribe)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def transcribe_audio(file_path: str) -> str:
+def transcribe_audio(file_path: str, mime_type: str = "audio/wav") -> str:
     api_key = AZURE_TRANSCRIBE_API_KEY or os.getenv("AZURE_API_KEY") or AZURE_OPENAI_API_KEY
     if not api_key:
         raise RuntimeError(
@@ -368,7 +368,7 @@ def transcribe_audio(file_path: str) -> str:
         "prompt":   AZURE_TRANSCRIBE_PROMPT,
     }
     with open(file_path, "rb") as f:
-        files = {"file": (os.path.basename(file_path), f, "audio/wav")}
+        files = {"file": (os.path.basename(file_path), f, mime_type)}
         resp  = requests.post(url, headers=headers, data=data, files=files, timeout=90)
     try:
         resp.raise_for_status()
@@ -377,14 +377,18 @@ def transcribe_audio(file_path: str) -> str:
     return (resp.json().get("text") or "").strip()
 
 
-def process_audio_input(audio_data: bytes) -> Tuple[str, str]:
-    """Write audio bytes to a temp WAV, transcribe, return (text, error)."""
+def process_audio_input(
+    audio_data: bytes,
+    suffix: str = ".wav",
+    mime_type: str = "audio/wav",
+) -> Tuple[str, str]:
+    """Write audio bytes to a temp file, transcribe, return (text, error)."""
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(audio_data)
             tmp_path = tmp.name
-        text = transcribe_audio(tmp_path)
+        text = transcribe_audio(tmp_path, mime_type=mime_type)
         print(f"[STT] {text!r}")
         return text, ""
     except Exception as exc:
@@ -620,19 +624,27 @@ def chat():
 @app.route("/transcribe", methods=["POST"])
 def transcribe_endpoint():
     """Audio → text only."""
-    audio_data = None
+    user_text = ""
+    error = ""
 
     if "audio" in request.files and request.files["audio"].filename:
-        audio_data = request.files["audio"].read()
+        audio_file = request.files["audio"]
+        audio_data = audio_file.read()
+        filename = audio_file.filename or "audio.wav"
+        suffix = Path(filename).suffix or ".wav"
+        mime_type = (audio_file.mimetype or "audio/wav").split(";")[0]
+        user_text, error = process_audio_input(audio_data, suffix=suffix, mime_type=mime_type)
     elif request.is_json:
         body = request.get_json() or {}
         if body.get("audio_base64"):
             audio_data = base64.b64decode(body["audio_base64"])
-
-    if not audio_data:
+            suffix = body.get("suffix") or ".wav"
+            mime_type = str(body.get("mime_type") or "audio/wav").split(";")[0]
+            user_text, error = process_audio_input(audio_data, suffix=suffix, mime_type=mime_type)
+        else:
+            return jsonify({"error": "Provide 'audio_base64' in JSON"}), 400
+    else:
         return jsonify({"error": "Provide 'audio' file or 'audio_base64' in JSON"}), 400
-
-    user_text, error = process_audio_input(audio_data)
     if error:
         return jsonify({"error": error}), 500
 
