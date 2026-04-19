@@ -705,10 +705,22 @@ export default function VoiceAgentPage() {
           bargeInTimeoutRef.current = null
         }
 
-        if (event.error === "no-speech") return
-        if (event.error === "not-allowed" || event.error === "permission-denied") setError("Microphone permission denied.")
-        else if (event.error === "audio-capture") setError("No microphone was found.")
-        else setError("Speech recognition encountered an issue. Please refresh and try again.")
+        // Browsers can emit "aborted" during intentional stop/restart cycles.
+        if (event.error === "no-speech" || event.error === "aborted") return
+
+        if (event.error === "not-allowed" || event.error === "permission-denied") {
+          setError("Microphone permission denied.")
+        } else if (event.error === "audio-capture") {
+          setError("No microphone was found.")
+        } else if (event.error === "network") {
+          setError("Speech recognition lost network access. Check your internet connection and try again.")
+        } else if (event.error === "service-not-allowed") {
+          setError("Speech recognition service is blocked for this browser profile. Use Chrome or Edge and allow speech services.")
+        } else if (event.error === "language-not-supported") {
+          setError("Speech recognition language is not supported in this browser.")
+        } else {
+          setError(`Speech recognition error: ${event.error}. Please refresh and try again.`)
+        }
 
         setIsListening(false)
       }

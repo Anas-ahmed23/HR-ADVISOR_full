@@ -4,6 +4,8 @@ import { Analytics } from "@vercel/analytics/next"
 import { AnalysisProvider } from "@/context/analysis-context"
 import "./globals.css"
 
+const analyticsEnabled = process.env.NEXT_PUBLIC_ENABLE_VERCEL_ANALYTICS === "true"
+
 export const metadata: Metadata = {
   title: "GradVoice - AI-Powered CV Analysis",
   description:
@@ -28,7 +30,7 @@ export default function RootLayout({
         <AnalysisProvider>
           {children}
         </AnalysisProvider>
-        <Analytics />
+        {analyticsEnabled ? <Analytics /> : null}
       </body>
     </html>
   )

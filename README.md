@@ -564,6 +564,16 @@ DEBUG=true
 ```env
 NEXT_PUBLIC_VOICE_SERVER_URL=http://localhost:5000
 CV_ANALYZE_BACKEND_URL=http://127.0.0.1:5001/analyze
+NEXT_PUBLIC_ENABLE_VERCEL_ANALYTICS=false
+```
+
+Set `NEXT_PUBLIC_ENABLE_VERCEL_ANALYTICS=true` only after enabling Web Analytics in your Vercel project.
+
+For a deployed frontend (for example on Vercel), point backend URLs to your public HTTPS tunnel/domain instead of localhost:
+
+```env
+NEXT_PUBLIC_VOICE_SERVER_URL=https://your-voice-backend.example.com
+CV_ANALYZE_BACKEND_URL=https://your-cv-backend.example.com/analyze
 ```
 
 ---
