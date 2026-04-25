@@ -39,7 +39,7 @@ except Exception:
     WebRTCBridge = None  # type: ignore[assignment]
 
 # ── Load .env ──────────────────────────────────────────────────────────────
-load_dotenv()
+load_dotenv(override=True)
 
 # ── Audio constants ────────────────────────────────────────────────────────
 SAMPLE_RATE  = 16000
