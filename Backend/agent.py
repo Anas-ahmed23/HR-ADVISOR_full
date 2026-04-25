@@ -16,23 +16,27 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import os
 import re
 import sys
 import tempfile
 import threading
 import unicodedata
-import uuid
-import wave
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
 import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from openai import AzureOpenAI
+
+try:
+    from webrtc_bridge import WEBRTC_RUNTIME_AVAILABLE, WebRTCBridge
+except Exception:
+    WEBRTC_RUNTIME_AVAILABLE = False
+    WebRTCBridge = None  # type: ignore[assignment]
 
 # ── Load .env ──────────────────────────────────────────────────────────────
 load_dotenv()
@@ -54,7 +58,7 @@ AZURE_TRANSCRIBE_ENDPOINT   = os.getenv("AZURE_TRANSCRIBE_ENDPOINT")
 AZURE_TRANSCRIBE_DEPLOYMENT = os.getenv("AZURE_TRANSCRIBE_DEPLOYMENT", "gpt-4o-transcribe")
 AZURE_TRANSCRIBE_API_VERSION = os.getenv("AZURE_TRANSCRIBE_API_VERSION", "2025-03-01-preview")
 AZURE_TRANSCRIBE_LANGUAGE   = os.getenv("AZURE_TRANSCRIBE_LANGUAGE", "en")
-AZURE_TRANSCRIBE_PROMPT     = os.getenv("AZURE_TRANSCRIBE_PROMPT", "The speaker is speaking English.")
+AZURE_TRANSCRIBE_PROMPT     = os.getenv("AZURE_TRANSCRIBE_PROMPT", "")
 
 # ── Azure TTS ──────────────────────────────────────────────────────────────
 AZURE_TTS_API_KEY    = os.getenv("AZURE_TTS_API_KEY")
@@ -69,7 +73,10 @@ SERVER_PORT = int(os.getenv("SERVER_PORT", "5000"))
 DEBUG       = os.getenv("DEBUG", "true").lower() == "true"
 
 # ── Voice context (HR candidate / JD documents) ────────────────────────────
-VOICE_CONTEXT_JSON         = os.getenv("VOICE_CONTEXT_JSON", "")
+DEFAULT_VOICE_CONTEXT_JSON = str(
+    (Path(__file__).resolve().parent / "runtime" / "voice_context" / "current_context.json")
+)
+VOICE_CONTEXT_JSON         = os.getenv("VOICE_CONTEXT_JSON", DEFAULT_VOICE_CONTEXT_JSON)
 VOICE_CONTEXT_PDFS_RAW     = os.getenv("VOICE_CONTEXT_PDFS", "")
 VOICE_CONTEXT_PDFS         = [p.strip() for p in VOICE_CONTEXT_PDFS_RAW.split(",") if p.strip()]
 VOICE_CONTEXT_PDF_MAX_CHARS = int(os.getenv("VOICE_CONTEXT_PDF_MAX_CHARS", "12000"))
@@ -166,6 +173,23 @@ def _build_tts_url() -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 _context_pack_cache: Optional[str] = None
+_context_signature_cache: Optional[Tuple[Any, ...]] = None
+_context_lock = threading.Lock()
+
+
+def _path_signature(path: Path) -> Tuple[bool, int, int]:
+    """Small fingerprint for reload detection."""
+    try:
+        stat = path.stat()
+        return (True, int(stat.st_mtime_ns), int(stat.st_size))
+    except Exception:
+        return (False, 0, 0)
+
+
+def _context_signature() -> Tuple[Any, ...]:
+    json_sig = _path_signature(Path(VOICE_CONTEXT_JSON)) if VOICE_CONTEXT_JSON else (False, 0, 0)
+    pdf_sig = tuple(_path_signature(Path(p)) for p in VOICE_CONTEXT_PDFS)
+    return (json_sig, pdf_sig, VOICE_CONTEXT_MAX_CHARS, VOICE_CONTEXT_PDF_MAX_CHARS)
 
 
 def _pdf_excerpt(path: Path, limit: int = 12000) -> str:
@@ -263,12 +287,46 @@ def _build_context_pack() -> str:
     return _compact_text("\n".join(sections), VOICE_CONTEXT_MAX_CHARS)
 
 
-def get_context_pack() -> str:
-    global _context_pack_cache
-    if _context_pack_cache is None:
-        _context_pack_cache = _build_context_pack()
-        log(f"[CTX] Context pack loaded ({len(_context_pack_cache)} chars).")
-    return _context_pack_cache
+def get_context_pack(force_reload: bool = False) -> str:
+    global _context_pack_cache, _context_signature_cache
+    sig = _context_signature()
+    with _context_lock:
+        if force_reload or _context_pack_cache is None or _context_signature_cache != sig:
+            _context_pack_cache = _build_context_pack()
+            _context_signature_cache = sig
+            log(f"[CTX] Context pack loaded ({len(_context_pack_cache)} chars).")
+    return _context_pack_cache or ""
+
+
+def upsert_runtime_context_json(payload: Dict[str, Any]) -> str:
+    """
+    Atomically write runtime JSON context to VOICE_CONTEXT_JSON target.
+    Returns resolved output path.
+    """
+    if not VOICE_CONTEXT_JSON:
+        raise RuntimeError("VOICE_CONTEXT_JSON is not configured.")
+
+    target = Path(VOICE_CONTEXT_JSON).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    blob = json.dumps(payload, ensure_ascii=False, indent=2)
+
+    # Atomic swap: write temp file in same directory, then replace target.
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=str(target.parent),
+        prefix=f"{target.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as fh:
+        fh.write(blob)
+        fh.flush()
+        os.fsync(fh.fileno())
+        temp_name = fh.name
+
+    os.replace(temp_name, target)
+    get_context_pack(force_reload=True)
+    return str(target)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -353,7 +411,7 @@ def llm_reply(user_text: str) -> str:
 # STT  (Azure GPT-4o Transcribe)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def transcribe_audio(file_path: str) -> str:
+def transcribe_audio(file_path: str, mime_type: str = "audio/wav") -> str:
     api_key = AZURE_TRANSCRIBE_API_KEY or os.getenv("AZURE_API_KEY") or AZURE_OPENAI_API_KEY
     if not api_key:
         raise RuntimeError(
@@ -365,26 +423,38 @@ def transcribe_audio(file_path: str) -> str:
     data    = {
         "model":    AZURE_TRANSCRIBE_DEPLOYMENT,
         "language": AZURE_TRANSCRIBE_LANGUAGE,
-        "prompt":   AZURE_TRANSCRIBE_PROMPT,
     }
+    prompt_hint = (AZURE_TRANSCRIBE_PROMPT or "").strip()
+    if prompt_hint:
+        data["prompt"] = prompt_hint
     with open(file_path, "rb") as f:
-        files = {"file": (os.path.basename(file_path), f, "audio/wav")}
+        files = {"file": (os.path.basename(file_path), f, mime_type)}
         resp  = requests.post(url, headers=headers, data=data, files=files, timeout=90)
     try:
         resp.raise_for_status()
     except Exception as exc:
         raise RuntimeError(f"Azure STT error {resp.status_code}: {resp.text}") from exc
-    return (resp.json().get("text") or "").strip()
+    text = (resp.json().get("text") or "").strip()
+    if prompt_hint:
+        normalized_text = re.sub(r"\s+", " ", text.lower()).strip(" .,!?:;")
+        normalized_prompt = re.sub(r"\s+", " ", prompt_hint.lower()).strip(" .,!?:;")
+        if normalized_text and normalized_text == normalized_prompt:
+            return ""
+    return text
 
 
-def process_audio_input(audio_data: bytes) -> Tuple[str, str]:
-    """Write audio bytes to a temp WAV, transcribe, return (text, error)."""
+def process_audio_input(
+    audio_data: bytes,
+    suffix: str = ".wav",
+    mime_type: str = "audio/wav",
+) -> Tuple[str, str]:
+    """Write audio bytes to a temp file, transcribe, return (text, error)."""
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(audio_data)
             tmp_path = tmp.name
-        text = transcribe_audio(tmp_path)
+        text = transcribe_audio(tmp_path, mime_type=mime_type)
         print(f"[STT] {text!r}")
         return text, ""
     except Exception as exc:
@@ -397,6 +467,13 @@ def process_audio_input(audio_data: bytes) -> Tuple[str, str]:
                 os.remove(tmp_path)
             except Exception:
                 pass
+
+
+def _guess_audio_mime_type(filename: str, fallback: str = "audio/wav") -> str:
+    guessed, _ = mimetypes.guess_type(filename)
+    if guessed and guessed.startswith("audio/"):
+        return guessed
+    return fallback
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -505,6 +582,31 @@ def generate_response(user_text: str) -> Dict[str, Any]:
         return {"text_response": ai_text or "An error occurred.", "audio_base64": "", "error": err, "interrupted": False}
 
 
+# ------------------------------------------------------------------------------
+# WEBRTC BRIDGE (backend-driven flow)
+# ------------------------------------------------------------------------------
+
+_webrtc_bridge: Optional[WebRTCBridge] = None
+_webrtc_bridge_lock = threading.Lock()
+
+
+def get_webrtc_bridge() -> Optional[WebRTCBridge]:
+    global _webrtc_bridge
+    if not WEBRTC_RUNTIME_AVAILABLE or WebRTCBridge is None:
+        return None
+
+    with _webrtc_bridge_lock:
+        if _webrtc_bridge is None:
+            _webrtc_bridge = WebRTCBridge(
+                transcribe_fn=process_audio_input,
+                llm_fn=llm_reply,
+                tts_fn=synthesize_speech,
+                sanitize_tts_text=sanitize_tts_text,
+                log_fn=log,
+            )
+    return _webrtc_bridge
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # FLASK APP
 # ══════════════════════════════════════════════════════════════════════════════
@@ -516,6 +618,14 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 
 @app.route("/health", methods=["GET"])
 def health_check():
+    bridge = None
+    if WEBRTC_RUNTIME_AVAILABLE:
+        try:
+            bridge = get_webrtc_bridge()
+        except Exception:
+            bridge = None
+
+    context_pack = get_context_pack()
     configured = all([
         AZURE_OPENAI_API_KEY,
         AZURE_OPENAI_ENDPOINT,
@@ -530,13 +640,23 @@ def health_check():
         "llm_loaded":       _llm_client is not None,
         "stt_available":    bool(AZURE_TRANSCRIBE_API_KEY or AZURE_OPENAI_API_KEY),
         "tts_available":    bool(AZURE_TTS_API_KEY or AZURE_OPENAI_API_KEY),
-        "context_loaded":   bool(_context_pack_cache),
+        "context_loaded":   bool(context_pack),
+        "webrtc_available": bool(WEBRTC_RUNTIME_AVAILABLE),
+        "webrtc_sessions":  bridge.active_sessions() if bridge else 0,
     }
     return jsonify(payload), (200 if configured else 503)
 
 
 @app.route("/status", methods=["GET"])
 def status():
+    bridge = None
+    if WEBRTC_RUNTIME_AVAILABLE:
+        try:
+            bridge = get_webrtc_bridge()
+        except Exception:
+            bridge = None
+
+    context_pack = get_context_pack()
     return jsonify({
         "server":          "HR Advisor Voice Agent (Azure)",
         "status":          "running",
@@ -544,8 +664,40 @@ def status():
         "stt_deployment":  AZURE_TRANSCRIBE_DEPLOYMENT,
         "tts_deployment":  AZURE_TTS_DEPLOYMENT,
         "tts_voice":       AZURE_TTS_VOICE,
-        "context_chars":   len(_context_pack_cache) if _context_pack_cache else 0,
+        "context_chars":   len(context_pack),
+        "webrtc_available": bool(WEBRTC_RUNTIME_AVAILABLE),
+        "webrtc_sessions":  bridge.active_sessions() if bridge else 0,
     })
+
+
+@app.route("/context/json", methods=["POST"])
+def set_context_json():
+    """
+    Push dynamic runtime JSON context into VOICE_CONTEXT_JSON path.
+    Body can be either:
+      - raw context object
+      - {"context": {...}}
+    """
+    if not request.is_json:
+        return jsonify({"error": "JSON content type required"}), 400
+    body = request.get_json() or {}
+    if isinstance(body, dict) and "context" in body and isinstance(body["context"], dict):
+        payload = body["context"]
+    elif isinstance(body, dict):
+        payload = body
+    else:
+        return jsonify({"error": "Invalid JSON payload"}), 400
+
+    try:
+        output_path = upsert_runtime_context_json(payload)
+        context_pack = get_context_pack()
+        return jsonify({
+            "status": "ok",
+            "path": output_path,
+            "context_chars": len(context_pack),
+        })
+    except Exception as exc:
+        return jsonify({"error": f"Context update failed: {exc}"}), 500
 
 
 @app.route("/speaking_status", methods=["GET"])
@@ -567,6 +719,82 @@ def interrupt():
         return jsonify({"status": "interrupted", "message": "Audio playback stopped"})
     except Exception as exc:
         return jsonify({"error": f"Interrupt failed: {exc}"}), 500
+
+
+@app.route("/webrtc/connect", methods=["POST"])
+def webrtc_connect():
+    """Create a backend WebRTC session and return SDP answer."""
+    try:
+        bridge = get_webrtc_bridge()
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC init failed: {exc}"}), 500
+    if bridge is None:
+        return jsonify({"error": "WebRTC is unavailable. Install aiortc + av in backend."}), 503
+    if not request.is_json:
+        return jsonify({"error": "JSON content type required"}), 400
+
+    payload = request.get_json() or {}
+    offer_sdp = str(payload.get("sdp") or "").strip()
+    offer_type = str(payload.get("type") or "").strip() or "offer"
+    if not offer_sdp:
+        return jsonify({"error": "Missing SDP offer."}), 400
+
+    try:
+        answer = bridge.create_session(offer_sdp=offer_sdp, offer_type=offer_type)
+        return jsonify(answer)
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC session creation failed: {exc}"}), 500
+
+
+@app.route("/webrtc/session/<session_id>/interrupt", methods=["POST"])
+def webrtc_interrupt(session_id: str):
+    try:
+        bridge = get_webrtc_bridge()
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC init failed: {exc}"}), 500
+    if bridge is None:
+        return jsonify({"error": "WebRTC is unavailable."}), 503
+    try:
+        interrupted = bridge.interrupt_session(session_id)
+        if not interrupted:
+            return jsonify({"error": "Session not found"}), 404
+        return jsonify({"status": "interrupted", "session_id": session_id})
+    except Exception as exc:
+        return jsonify({"error": f"Interrupt failed: {exc}"}), 500
+
+
+@app.route("/webrtc/session/<session_id>/close", methods=["POST"])
+def webrtc_close(session_id: str):
+    try:
+        bridge = get_webrtc_bridge()
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC init failed: {exc}"}), 500
+    if bridge is None:
+        return jsonify({"error": "WebRTC is unavailable."}), 503
+    try:
+        closed = bridge.close_session(session_id)
+        if not closed:
+            return jsonify({"error": "Session not found"}), 404
+        return jsonify({"status": "closed", "session_id": session_id})
+    except Exception as exc:
+        return jsonify({"error": f"Close failed: {exc}"}), 500
+
+
+@app.route("/webrtc/session/<session_id>/status", methods=["GET"])
+def webrtc_session_status(session_id: str):
+    try:
+        bridge = get_webrtc_bridge()
+    except Exception as exc:
+        return jsonify({"error": f"WebRTC init failed: {exc}"}), 500
+    if bridge is None:
+        return jsonify({"error": "WebRTC is unavailable."}), 503
+    try:
+        session = bridge.session_status(session_id)
+        if session is None:
+            return jsonify({"error": "Session not found"}), 404
+        return jsonify(session)
+    except Exception as exc:
+        return jsonify({"error": f"Status query failed: {exc}"}), 500
 
 
 @app.route("/chat", methods=["POST"])
@@ -620,20 +848,36 @@ def chat():
 @app.route("/transcribe", methods=["POST"])
 def transcribe_endpoint():
     """Audio → text only."""
-    audio_data = None
+    user_text = ""
+    error = ""
 
     if "audio" in request.files and request.files["audio"].filename:
-        audio_data = request.files["audio"].read()
+        audio_file = request.files["audio"]
+        audio_data = audio_file.read()
+        filename = audio_file.filename or "audio.wav"
+        suffix = Path(filename).suffix or ".wav"
+        mime_type = (audio_file.mimetype or "audio/wav").split(";")[0]
+        if mime_type in {"", "application/octet-stream"}:
+            mime_type = _guess_audio_mime_type(filename, fallback="audio/webm")
+        user_text, error = process_audio_input(audio_data, suffix=suffix, mime_type=mime_type)
     elif request.is_json:
         body = request.get_json() or {}
         if body.get("audio_base64"):
             audio_data = base64.b64decode(body["audio_base64"])
-
-    if not audio_data:
+            suffix = body.get("suffix") or ".wav"
+            mime_type = str(body.get("mime_type") or "audio/wav").split(";")[0]
+            user_text, error = process_audio_input(audio_data, suffix=suffix, mime_type=mime_type)
+        else:
+            return jsonify({"error": "Provide 'audio_base64' in JSON"}), 400
+    else:
         return jsonify({"error": "Provide 'audio' file or 'audio_base64' in JSON"}), 400
-
-    user_text, error = process_audio_input(audio_data)
     if error:
+        if "Audio file might be corrupted or unsupported" in error:
+            return jsonify({
+                "transcribed_text": "",
+                "should_exit":      False,
+                "error":            "",
+            })
         return jsonify({"error": error}), 500
 
     return jsonify({
@@ -667,7 +911,9 @@ def initialize() -> None:
     print(f"  LLM : {AZURE_OPENAI_DEPLOYMENT}  ({AZURE_OPENAI_API_VERSION})")
     print(f"  STT : {AZURE_TRANSCRIBE_DEPLOYMENT}  ({AZURE_TRANSCRIBE_API_VERSION})")
     print(f"  TTS : {AZURE_TTS_DEPLOYMENT}  voice={AZURE_TTS_VOICE}")
+    print(f"  WebRTC runtime available: {WEBRTC_RUNTIME_AVAILABLE}")
     print(f"  Host: {SERVER_HOST}:{SERVER_PORT}")
+    print(f"  Context JSON path: {VOICE_CONTEXT_JSON}")
 
     if not AZURE_OPENAI_API_KEY or not AZURE_OPENAI_ENDPOINT:
         raise RuntimeError("AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT are required.")
@@ -683,11 +929,16 @@ def initialize() -> None:
     print("\nEndpoints:")
     print("  GET  /health          — liveness check")
     print("  GET  /status          — service details")
+    print("  POST /context/json    — push runtime JSON context")
     print("  POST /chat            — main voice chat")
     print("  POST /transcribe      — STT only")
     print("  POST /synthesize      — TTS only")
     print("  GET  /speaking_status — barge-in state")
     print("  POST /interrupt       — barge-in signal")
+    print("  POST /webrtc/connect  — WebRTC SDP answer")
+    print("  POST /webrtc/session/<id>/interrupt — WebRTC barge-in")
+    print("  POST /webrtc/session/<id>/close     — close WebRTC session")
+    print("  GET  /webrtc/session/<id>/status    — WebRTC diagnostics")
     print("======================================\n")
 
 
@@ -698,3 +949,9 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"[FATAL] {exc}")
         sys.exit(1)
+    finally:
+        if _webrtc_bridge is not None:
+            try:
+                _webrtc_bridge.shutdown()
+            except Exception:
+                pass

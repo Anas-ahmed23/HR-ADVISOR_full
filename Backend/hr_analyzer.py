@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
-GradVoice HR Advisor – Advanced Analyzer (Updated)
+GradVoice HR Advisor â€“ Advanced Analyzer (Updated)
 Flair NER + Keyword Matching + Azure OpenAI (Evidence-based, RAG-ready)
 """
 
@@ -8,7 +8,9 @@ import os
 import json
 import re
 import zipfile
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 import docx
 import pdfplumber
@@ -479,7 +481,7 @@ GLOBAL RULES (VERY IMPORTANT)
 - You must NOT hallucinate or invent any skills, tools, experience, responsibilities, or requirements.
 - Only mark something as "matched" if there is clear or strongly implied evidence in the CV.
 - Use semantic understanding, but always tie it to actual CV evidence.
-- If unsure → mark as missing.
+- If unsure â†’ mark as missing.
 - Be realistic, fair, and professional.
 - Do NOT overpraise weak candidates.
 - Tone must be supportive, clear, and human-readable.
@@ -501,7 +503,7 @@ GLOBAL RULES (VERY IMPORTANT)
 - final_score MUST NEVER be 0 unless the CV is completely irrelevant.
 
 ==================================================
-PHASE 1 — UNDERSTAND JD & CV
+PHASE 1 â€” UNDERSTAND JD & CV
 ==================================================
 - Identify job role and seniority
 - Identify key requirements
@@ -513,7 +515,7 @@ PHASE 1 — UNDERSTAND JD & CV
 - Extract the JD's key tools and technologies
 
 ==================================================
-PHASE 2 — SKILL EXTRACTION
+PHASE 2 â€” SKILL EXTRACTION
 ==================================================
 Extract:
 - cv_skills_hard
@@ -531,7 +533,7 @@ Also build:
 - job_description_analysis.seniority
 
 ==================================================
-PHASE 3 — SEMANTIC MATCHING (EVIDENCE-BASED)
+PHASE 3 â€” SEMANTIC MATCHING (EVIDENCE-BASED)
 ==================================================
 For each JD skill:
 - Find evidence in CV
@@ -540,17 +542,17 @@ For each JD skill:
   - synonym
   - semantic
 
-If no evidence → missing
+If no evidence â†’ missing
 
 Each matched skill must include:
 - jd_skill
 - cv_skill
 - match_type
 - evidence
-- confidence (0.5–1.0)
+- confidence (0.5â€“1.0)
 
 ==================================================
-PHASE 4 — SCORING
+PHASE 4 â€” SCORING
 ==================================================
 Calculate:
 - skill_score
@@ -573,16 +575,16 @@ final_score =
 0.03 * impact_score
 
 ==================================================
-PHASE 5 — CLASSIFICATION
+PHASE 5 â€” CLASSIFICATION
 ==================================================
-- 85–100 → Excellent Match
-- 70–84 → Strong Match
-- 50–69 → Moderate Match
-- 30–49 → Weak Match
-- 0–29 → Very Weak Match
+- 85â€“100 â†’ Excellent Match
+- 70â€“84 â†’ Strong Match
+- 50â€“69 â†’ Moderate Match
+- 30â€“49 â†’ Weak Match
+- 0â€“29 â†’ Very Weak Match
 
 ==================================================
-PHASE 6 — ATS STYLE SUMMARY + ADVICE
+PHASE 6 â€” ATS STYLE SUMMARY + ADVICE
 ==================================================
 You must generate a report that is:
 - easy to read
@@ -590,12 +592,12 @@ You must generate a report that is:
 - helpful for the candidate
 
 ==================================================
-PHASE 7 — RAG / VOICE AGENT STORAGE
+PHASE 7 â€” RAG / VOICE AGENT STORAGE
 ==================================================
 Your JSON will be used later by a retrieval-augmented generation (RAG) system and a voice assistant.
 
 ==================================================
-PHASE 8 — ALTERNATIVE JOB RECOMMENDATIONS (MANDATORY)
+PHASE 8 â€” ALTERNATIVE JOB RECOMMENDATIONS (MANDATORY)
 ==================================================
 Based EXCLUSIVELY on evidence found in the candidate's CV, generate exactly 2 or 3 real alternative job role recommendations.
 
@@ -607,7 +609,7 @@ RULES (STRICT):
 - Each recommendation MUST have an accurate fit_score (integer 0-100) derived from the CV evidence.
 - The fit_score should reflect how well the candidate's CV actually supports that alternative role.
 - Each cv_match_skills list MUST contain 3 to 5 actual skills present in the CV that directly support the recommended role.
-- Each reason must be 1 to 2 clear, concrete sentences explaining the match — no generic filler.
+- Each reason must be 1 to 2 clear, concrete sentences explaining the match â€” no generic filler.
 - Order recommendations by fit_score descending.
 - Seniority must reflect the level implied by the CV (Junior, Mid-Level, Senior, Lead, Manager).
 - Think like an experienced recruiter giving honest, actionable career path advice.
@@ -712,7 +714,7 @@ CATEGORY NAMING RULES:
   - "Various"
 
 FINAL RULE:
-- The grouping must feel natural, logical, and human-like — as if done by an experienced recruiter.
+- The grouping must feel natural, logical, and human-like â€” as if done by an experienced recruiter.
 - Prioritize clarity and usefulness over strict categorization.
 
 ==================================================
@@ -928,7 +930,7 @@ FIELD REQUIREMENTS
 - job_recommendations must contain 2 to 3 objects, ordered by fit_score descending.
 - job_recommendations[].job_title must be a real, specific job title (not generic like "IT role").
 - job_recommendations[].fit_score must be an integer between 0 and 100, reflecting actual CV evidence.
-- job_recommendations[].reason must be 1 to 2 concrete sentences — no filler or generic statements.
+- job_recommendations[].reason must be 1 to 2 concrete sentences â€” no filler or generic statements.
 - job_recommendations[].cv_match_skills must contain 3 to 5 actual skills from the CV supporting this role.
 - job_recommendations[].seniority must match the experience level evidenced in the CV.
 
@@ -970,7 +972,7 @@ def run_llm_hr_advisor(cv_input, jd_input, extraction_result):
             {"role": "user", "content": json.dumps(payload)}
         ],
         temperature=0.0,
-        max_completion_tokens=4096
+        max_completion_tokens=8000
     )
 
     raw_output = response.choices[0].message.content.strip()
@@ -1539,7 +1541,7 @@ def normalize_rag_json(data):
         }
     ]
 
-    # ── Normalize job_recommendations ──────────────────────────
+    # â”€â”€ Normalize job_recommendations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     raw_recs = data.get("job_recommendations", [])
     cleaned_recs = []
     for rec in raw_recs:
@@ -1572,14 +1574,43 @@ def normalize_rag_json(data):
 # MAIN ENTRY POINT (used by Flask / backend_server.py)
 # ============================================================
 
+RUNTIME_CONTEXT_DIR = Path(__file__).resolve().parent / "runtime" / "voice_context"
+RUNTIME_CONTEXT_JSON = RUNTIME_CONTEXT_DIR / "current_context.json"
+
+
+def save_runtime_context_json(rag_data, output_path=RUNTIME_CONTEXT_JSON):
+    """Atomically save runtime context JSON consumed by the voice agent."""
+    target = Path(output_path).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(rag_data, indent=4, ensure_ascii=False)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=str(target.parent),
+        prefix=f"{target.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as fh:
+        fh.write(payload)
+        fh.flush()
+        os.fsync(fh.fileno())
+        temp_name = fh.name
+
+    os.replace(temp_name, target)
+    print(f"Saved runtime voice context JSON: {target}")
+    return str(target)
+
+
 def evaluate_candidate_combined(cv_path, jd_path):
     extraction_result = process_pair(cv_path, jd_path)
     llm_result = run_llm_hr_advisor(cv_path, jd_path, extraction_result)
+    context_path = save_runtime_context_json(llm_result)
     return {
         "extraction_analysis": extraction_result,
-        "llm_analysis": llm_result
+        "llm_analysis": llm_result,
+        "voice_context_json_path": context_path,
     }
-
 
 # Alias for backward compatibility with backend_server.py
 analyze_cv_pair = evaluate_candidate_combined
@@ -1593,3 +1624,4 @@ def save_rag_json(rag_data, filename="gradvoice_rag_output.json"):
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(rag_data, f, indent=4, ensure_ascii=False)
     print(f"Saved JSON file: {filename}")
+

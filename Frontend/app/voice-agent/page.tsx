@@ -1,6 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
+import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import {
   AlertCircle,
@@ -8,6 +9,7 @@ import {
   Brain,
   CheckCircle2,
   FileText,
+  Lock,
   MessageSquare,
   Mic,
   MicOff,
@@ -19,49 +21,12 @@ import {
   Target,
 } from "lucide-react"
 
-import Link from "next/link"
-import { Lock } from "lucide-react"
 import { ProductPanel, ProductShell } from "@/components/product-shell"
 import { WaveformVisualizer } from "@/components/WaveformVisualizer"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { HTTPClient } from "@/lib/http-client"
 import { useAnalysis } from "@/context/analysis-context"
-
-type BrowserSpeechRecognition = {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  onstart: (() => void) | null
-  onend: (() => void) | null
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onerror: ((event: SpeechRecognitionErrorLike) => void) | null
-  start: () => void
-  stop: () => void
-}
-
-type SpeechRecognitionResultLike = {
-  isFinal: boolean
-  0: {
-    transcript: string
-  }
-}
-
-type SpeechRecognitionEventLike = {
-  resultIndex: number
-  results: ArrayLike<SpeechRecognitionResultLike>
-}
-
-type SpeechRecognitionErrorLike = {
-  error: string
-}
-
-type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition
-
-type SpeechRecognitionWindow = Window & {
-  SpeechRecognition?: SpeechRecognitionConstructor
-  webkitSpeechRecognition?: SpeechRecognitionConstructor
-}
 
 type TranscriptEntry = {
   id: string
@@ -71,6 +36,7 @@ type TranscriptEntry = {
 }
 
 type InsightTone = "violet" | "cyan" | "emerald"
+type VoiceState = "idle" | "listening" | "processing" | "speaking" | "closed"
 
 type SummaryView = {
   overview: string
@@ -79,16 +45,6 @@ type SummaryView = {
   concerns: string[]
   recruiterNotes: string[]
 }
-
-const systemResponseFragments = [
-  "processing your request",
-  "still processing",
-  "connected!",
-  "ready!",
-  "send a message",
-  "disconnected",
-  "conversation ended",
-]
 
 const topicLibrary = [
   {
@@ -116,7 +72,6 @@ function formatDuration(milliseconds: number) {
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
 }
 
-
 function countWords(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length
 }
@@ -128,7 +83,7 @@ function extractTopics(entries: TranscriptEntry[]) {
     .map((topic) => topic.label)
 }
 
-function getSummary(entries: TranscriptEntry[], durationMs: number): SummaryView {
+function getSummary(entries: TranscriptEntry[]): SummaryView {
   const candidateTurns = entries.filter((entry) => entry.speaker === "Candidate")
   const aiTurns = entries.filter((entry) => entry.speaker === "AI")
   const candidateWordCount = candidateTurns.reduce((total, entry) => total + countWords(entry.text), 0)
@@ -178,11 +133,11 @@ function getSummary(entries: TranscriptEntry[], durationMs: number): SummaryView
 
   const recommendation =
     candidateTurns.length >= 3 && strongVerbHits >= 2
-      ? "Review the transcript and advance if role-specific requirements match the captured examples."
+      ? "Review transcript and advance if role-specific requirements match captured examples."
       : "Keep the candidate in review and run a deeper follow-up on missing role signals."
 
   return {
-    overview: `Captured ${candidateTurns.length} candidate responses and ${aiTurns.length} assistant prompts. The session produced structured transcript context for recruiter review.`,
+    overview: `Captured ${candidateTurns.length} candidate responses and ${aiTurns.length} assistant prompts for recruiter review.`,
     recommendation,
     strengths,
     concerns,
@@ -300,7 +255,7 @@ function getStatusView(params: {
   if (params.isCallActive && !params.isMicOn) {
     return {
       label: "Mic paused",
-      description: "The session is open, but microphone capture is temporarily disabled.",
+      description: "Session is open, but local microphone is muted.",
       badgeClassName: "border-white/15 bg-white/[0.06] text-white/70",
     }
   }
@@ -308,14 +263,14 @@ function getStatusView(params: {
   if (params.hasCompletedSession) {
     return {
       label: "Conversation ended",
-      description: "Review the transcript, insights, and summary panels.",
+      description: "Review transcript, insights, and summary.",
       badgeClassName: "border-white/15 bg-white/[0.06] text-white/75",
     }
   }
 
   return {
     label: "Ready",
-    description: "Start a new AI interview session when you are ready to capture the conversation.",
+    description: "Start a new AI interview session when you are ready.",
     badgeClassName: "border-white/15 bg-white/[0.06] text-white/75",
   }
 }
@@ -382,6 +337,8 @@ function InsightCard({
 
 export default function VoiceAgentPage() {
   const { isComplete } = useAnalysis()
+  const voiceServerUrl = process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000"
+
   const [userSpeech, setUserSpeech] = useState("")
   const [aiResponse, setAiResponse] = useState("")
   const [isConnected, setIsConnected] = useState(false)
@@ -395,24 +352,17 @@ export default function VoiceAgentPage() {
   const [speechSupported, setSpeechSupported] = useState(true)
   const [activeTab, setActiveTab] = useState("transcript")
   const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([])
-  const [liveTranscript, setLiveTranscript] = useState("")
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null)
   const [sessionEndedAt, setSessionEndedAt] = useState<number | null>(null)
   const [hasCompletedSession, setHasCompletedSession] = useState(false)
   const [clockTick, setClockTick] = useState(Date.now())
 
-  const httpClientRef = useRef<HTTPClient | null>(null)
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null)
-  const speechStartTimeRef = useRef<number>(0)
-  const bargeInTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clientRef = useRef<HTTPClient | null>(null)
+  const intentionalDisconnectRef = useRef(false)
   const isCallActiveRef = useRef(false)
   const isMicOnRef = useRef(true)
-  const isListeningRef = useRef(false)
-  const isAISpeakingRef = useRef(false)
-  const intentionalDisconnectRef = useRef(false)
-  const isSuppressedByAIRef = useRef(false)
-  const isBargeInWindowRef = useRef(false)
-  const bargeInWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastCandidateTextRef = useRef("")
+  const lastCandidateAtRef = useRef(0)
 
   useEffect(() => {
     isCallActiveRef.current = isCallActive
@@ -423,20 +373,10 @@ export default function VoiceAgentPage() {
   }, [isMicOn])
 
   useEffect(() => {
-    isListeningRef.current = isListening
-  }, [isListening])
-
-  useEffect(() => {
-    isAISpeakingRef.current = isAISpeaking
-  }, [isAISpeaking])
-
-  useEffect(() => {
     if (!sessionStartedAt || sessionEndedAt) return
-
     const interval = setInterval(() => {
       setClockTick(Date.now())
     }, 1000)
-
     return () => clearInterval(interval)
   }, [sessionEndedAt, sessionStartedAt])
 
@@ -444,7 +384,6 @@ export default function VoiceAgentPage() {
     const appendTranscriptEntry = (speaker: TranscriptEntry["speaker"], text: string) => {
       const trimmed = text.trim()
       if (!trimmed) return
-
       setTranscriptEntries((current) => [
         ...current,
         {
@@ -456,329 +395,112 @@ export default function VoiceAgentPage() {
       ])
     }
 
-    httpClientRef.current = new HTTPClient({
-      serverUrl: process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000",
-      onPlaybackEnded: () => {
-        if (bargeInWindowTimerRef.current) {
-          clearTimeout(bargeInWindowTimerRef.current)
-          bargeInWindowTimerRef.current = null
-        }
-        isSuppressedByAIRef.current = false
-        isBargeInWindowRef.current = false
-        setIsAISpeaking(false)
-        setLiveTranscript("")
-        // AI finished naturally — short pause for echo tail, then resume mic
-        setTimeout(() => {
-          if (isCallActiveRef.current && isMicOnRef.current && !isAISpeakingRef.current) {
-            void startSpeechRecognition()
-          }
-        }, 400)
-      },
-      onAIResponse: (response: string) => {
-        const normalized = response.toLowerCase()
-
+    clientRef.current = new HTTPClient({
+      serverUrl: voiceServerUrl,
+      onAIResponse: (response) => {
+        if (!response.trim()) return
         setAiResponse(response)
-
-        if (normalized.includes("processing your request") || normalized.includes("still processing")) {
-          setIsProcessing(true)
-          setIsAISpeaking(false)
-          return
-        }
-
-        if (normalized.includes("connected!") || normalized.includes("ready!") || normalized.includes("send a message")) {
-          setIsProcessing(false)
-          setIsAISpeaking(false)
-          return
-        }
-
-        setIsProcessing(false)
-        setIsAISpeaking(true)
-        isSuppressedByAIRef.current = true
-        isBargeInWindowRef.current = false
-        stopSpeechRecognition()
-
-        // Phase 1: lockout (1500ms) — mic is off so AI voice can't echo into recognition
-        // Phase 2: watchdog — mic re-enables so the user CAN barge in
-        if (bargeInWindowTimerRef.current) clearTimeout(bargeInWindowTimerRef.current)
-        bargeInWindowTimerRef.current = setTimeout(() => {
-          bargeInWindowTimerRef.current = null
-          if (isAISpeakingRef.current && isCallActiveRef.current && isMicOnRef.current) {
-            isSuppressedByAIRef.current = false
-            isBargeInWindowRef.current = true
-            void startSpeechRecognition()
-          }
-        }, 1500)
-
-        if (!systemResponseFragments.some((fragment) => normalized.includes(fragment))) {
-          appendTranscriptEntry("AI", response)
-        }
+        appendTranscriptEntry("AI", response)
       },
-      onConnectionChange: (connected: boolean) => {
+      onCandidateTranscription: (text) => {
+        const trimmed = text.trim()
+        if (!trimmed) return
+
+        const now = Date.now()
+        const normalized = trimmed.toLowerCase().replace(/\s+/g, " ").trim()
+        if (normalized === lastCandidateTextRef.current && now - lastCandidateAtRef.current < 2000) {
+          return
+        }
+
+        lastCandidateTextRef.current = normalized
+        lastCandidateAtRef.current = now
+        setUserSpeech(trimmed)
+        appendTranscriptEntry("Candidate", trimmed)
+      },
+      onStateChange: (state: VoiceState) => {
+        setIsProcessing(state === "processing")
+        setIsAISpeaking(state === "speaking")
+        setIsListening(state === "listening" && isCallActiveRef.current && isMicOnRef.current)
+      },
+      onPlaybackEnded: () => {
+        setIsAISpeaking(false)
+      },
+      onConnectionChange: (connected) => {
         setIsConnected(connected)
         setIsCallActive(connected)
-        setIsProcessing(false)
-        setIsAISpeaking(false)
-
-        if (connected) {
-          intentionalDisconnectRef.current = false
-          setError("")
-          return
-        }
-
-        if (!intentionalDisconnectRef.current) {
-          setError((current) => current || "Disconnected from the voice server.")
+        if (!connected) {
+          setIsListening(false)
+          setIsProcessing(false)
+          setIsAISpeaking(false)
+          if (!intentionalDisconnectRef.current) {
+            setError((current) => current || "Disconnected from the voice server.")
+          }
         }
       },
-      onError: (errorMessage: string) => {
-        if (!errorMessage.toLowerCase().includes("disconnected")) {
-          setError(errorMessage)
-        }
-        setIsProcessing(false)
-        setIsAISpeaking(false)
+      onError: (message) => {
+        if (intentionalDisconnectRef.current) return
+        setError(message)
       },
     })
 
     if (typeof window !== "undefined") {
-      const speechWindow = window as SpeechRecognitionWindow
-      const SpeechRecognitionCtor = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition
-
-      if (SpeechRecognitionCtor) {
-        recognitionRef.current = new SpeechRecognitionCtor()
-      } else {
+      const hasGetUserMedia = !!navigator.mediaDevices?.getUserMedia
+      const hasWebRTC = typeof RTCPeerConnection !== "undefined"
+      if (!hasGetUserMedia || !hasWebRTC) {
         setSpeechSupported(false)
-        setError("Speech recognition is not supported in this browser. Use Chrome or Edge.")
+        setError("This browser does not support WebRTC microphone sessions.")
       }
     }
 
     return () => {
-      httpClientRef.current?.disconnect()
-
-      if (bargeInWindowTimerRef.current) {
-        clearTimeout(bargeInWindowTimerRef.current)
-        bargeInWindowTimerRef.current = null
-      }
-
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop()
-        } catch {
-          // ignore cleanup stop errors
-        }
-      }
-
-      if (bargeInTimeoutRef.current) {
-        clearTimeout(bargeInTimeoutRef.current)
-        bargeInTimeoutRef.current = null
-      }
+      intentionalDisconnectRef.current = true
+      clientRef.current?.disconnect()
     }
-  }, [])
-
-  const stopSpeechRecognition = () => {
-    if (!recognitionRef.current) return
-
-    try {
-      recognitionRef.current.stop()
-      setIsListening(false)
-      setLiveTranscript("")
-    } catch {
-      // ignore repeated stop calls from browsers that reject them
-    }
-  }
-
-  const handleBargeIn = async () => {
-    // Kill the lockout timer so it doesn't restart mic on top of us
-    if (bargeInWindowTimerRef.current) {
-      clearTimeout(bargeInWindowTimerRef.current)
-      bargeInWindowTimerRef.current = null
-    }
-    await httpClientRef.current?.interrupt()
-    httpClientRef.current?.stopAudioPlayback()
-    isSuppressedByAIRef.current = false
-    isBargeInWindowRef.current = false
-    setIsAISpeaking(false)
-    setAiResponse("")
-    speechStartTimeRef.current = 0
-
-    if (bargeInTimeoutRef.current) {
-      clearTimeout(bargeInTimeoutRef.current)
-      bargeInTimeoutRef.current = null
-    }
-  }
-
-  const startSpeechRecognition = async () => {
-    const recognition = recognitionRef.current
-    if (!recognition) return
-
-    try {
-      if (isListeningRef.current) {
-        stopSpeechRecognition()
-        await new Promise((resolve) => setTimeout(resolve, 200))
-      }
-
-      setError("")
-      await new Promise((resolve) => setTimeout(resolve, 200))
-
-      recognition.continuous = true
-      recognition.interimResults = true
-      recognition.lang = "en-US"
-
-      recognition.onstart = () => setIsListening(true)
-
-      recognition.onend = () => {
-        setIsListening(false)
-
-        // Do NOT auto-restart during lockout — barge-in window timer or onPlaybackEnded will restart
-        if (isCallActiveRef.current && isMicOnRef.current && !isSuppressedByAIRef.current) {
-          // Shorter delay in barge-in window so watchdog stays responsive
-          const restartDelay = isBargeInWindowRef.current ? 300 : 1000
-          bargeInTimeoutRef.current = setTimeout(() => {
-            if (
-              recognitionRef.current &&
-              isCallActiveRef.current &&
-              isMicOnRef.current &&
-              !isListeningRef.current &&
-              !isSuppressedByAIRef.current
-            ) {
-              recognitionRef.current.start()
-            }
-          }, restartDelay)
-        }
-      }
-
-      recognition.onresult = (event: SpeechRecognitionEventLike) => {
-        let finalTranscript = ""
-        let interimTranscript = ""
-
-        for (let index = event.resultIndex; index < event.results.length; index += 1) {
-          const transcript = event.results[index][0].transcript
-          if (event.results[index].isFinal) finalTranscript += transcript
-          else interimTranscript += transcript
-        }
-
-        setLiveTranscript(interimTranscript.trim())
-
-        if (interimTranscript.trim().length > 0 && isAISpeakingRef.current && isMicOnRef.current) {
-          const currentTime = Date.now()
-          if (!speechStartTimeRef.current) speechStartTimeRef.current = currentTime
-
-          if (currentTime - speechStartTimeRef.current > 500) {
-            void handleBargeIn()
-            return
-          }
-        } else if (!interimTranscript.trim()) {
-          speechStartTimeRef.current = 0
-        }
-
-        if (finalTranscript.trim() && isMicOnRef.current && !isAISpeakingRef.current) {
-          const finalMessage = finalTranscript.trim()
-          setUserSpeech(finalMessage)
-          setLiveTranscript("")
-          setTranscriptEntries((current) => [
-            ...current,
-            {
-              id: `candidate-${Date.now()}-${current.length}`,
-              speaker: "Candidate",
-              text: finalMessage,
-              timestamp: Date.now(),
-            },
-          ])
-
-          speechStartTimeRef.current = 0
-
-          if (bargeInTimeoutRef.current) {
-            clearTimeout(bargeInTimeoutRef.current)
-            bargeInTimeoutRef.current = null
-          }
-
-          void httpClientRef.current?.sendTextMessage(finalMessage).catch(() => {
-            setError("Failed to send your message. Please check the voice server is running.")
-          })
-        }
-      }
-
-      recognition.onerror = (event: SpeechRecognitionErrorLike) => {
-        speechStartTimeRef.current = 0
-        setLiveTranscript("")
-
-        if (bargeInTimeoutRef.current) {
-          clearTimeout(bargeInTimeoutRef.current)
-          bargeInTimeoutRef.current = null
-        }
-
-        if (event.error === "no-speech") return
-        if (event.error === "not-allowed" || event.error === "permission-denied") setError("Microphone permission denied.")
-        else if (event.error === "audio-capture") setError("No microphone was found.")
-        else setError("Speech recognition encountered an issue. Please refresh and try again.")
-
-        setIsListening(false)
-      }
-
-      recognition.start()
-    } catch {
-      setError("Could not start speech recognition. Please refresh and try again.")
-    }
-  }
+  }, [voiceServerUrl])
 
   const handleStartListening = async () => {
-    if (!httpClientRef.current || !speechSupported) return
+    if (!clientRef.current || !speechSupported) return
 
     intentionalDisconnectRef.current = false
+    lastCandidateTextRef.current = ""
+    lastCandidateAtRef.current = 0
+
     setError("")
     setUserSpeech("")
     setAiResponse("")
-    setLiveTranscript("")
     setTranscriptEntries([])
     setIsMicOn(true)
     setIsConnecting(true)
     setIsProcessing(false)
     setIsAISpeaking(false)
+    setIsListening(false)
     setHasCompletedSession(false)
     setSessionStartedAt(null)
     setSessionEndedAt(null)
     setActiveTab("transcript")
 
     try {
-      await httpClientRef.current.connect()
+      await clientRef.current.connect()
       setSessionStartedAt(Date.now())
       setClockTick(Date.now())
-      await startSpeechRecognition()
+      setIsListening(true)
     } catch {
-      setError("Unable to connect to the voice server. Make sure the backend is running and try again.")
+      setError("Unable to connect to the voice backend. Ensure backend and tunnel are running.")
     } finally {
       setIsConnecting(false)
     }
   }
 
-  const handleEndCall = async () => {
+  const handleEndCall = () => {
     intentionalDisconnectRef.current = true
-    speechStartTimeRef.current = 0
-    setLiveTranscript("")
-
-    if (bargeInWindowTimerRef.current) {
-      clearTimeout(bargeInWindowTimerRef.current)
-      bargeInWindowTimerRef.current = null
-    }
-    isSuppressedByAIRef.current = false
-    isBargeInWindowRef.current = false
-
-    if (bargeInTimeoutRef.current) {
-      clearTimeout(bargeInTimeoutRef.current)
-      bargeInTimeoutRef.current = null
-    }
-
-    if (isAISpeakingRef.current) {
-      await httpClientRef.current?.interrupt()
-    }
-
-    httpClientRef.current?.stopAudioPlayback()
-    stopSpeechRecognition()
-    httpClientRef.current?.disconnect()
+    clientRef.current?.disconnect()
 
     setIsConnected(false)
-    setIsAISpeaking(false)
-    setIsProcessing(false)
     setIsCallActive(false)
-    setIsConnecting(false)
+    setIsListening(false)
+    setIsProcessing(false)
+    setIsAISpeaking(false)
+    setIsMicOn(false)
     setSessionEndedAt(Date.now())
     setHasCompletedSession(true)
     setActiveTab("summary")
@@ -787,23 +509,11 @@ export default function VoiceAgentPage() {
   const handleToggleMic = () => {
     const nextMicState = !isMicOn
     setIsMicOn(nextMicState)
-
-    if (nextMicState && isCallActive) {
-      setTimeout(() => {
-        // During AI lockout phase, skip — the lockout timer will restart mic when safe
-        if (!isSuppressedByAIRef.current) {
-          void startSpeechRecognition()
-        }
-      }, 300)
-      return
-    }
-
-    stopSpeechRecognition()
-    speechStartTimeRef.current = 0
-
-    if (bargeInTimeoutRef.current) {
-      clearTimeout(bargeInTimeoutRef.current)
-      bargeInTimeoutRef.current = null
+    clientRef.current?.setMicEnabled(nextMicState)
+    if (!nextMicState) {
+      setIsListening(false)
+    } else if (isCallActive && !isProcessing && !isAISpeaking) {
+      setIsListening(true)
     }
   }
 
@@ -817,8 +527,9 @@ export default function VoiceAgentPage() {
     isMicOn,
     hasCompletedSession,
   })
+
   const sessionDurationMs = sessionStartedAt ? (sessionEndedAt ?? clockTick) - sessionStartedAt : 0
-  const summary = getSummary(transcriptEntries, sessionDurationMs)
+  const summary = getSummary(transcriptEntries)
   const insights = getInsights(transcriptEntries)
   const candidateTurns = transcriptEntries.filter((entry) => entry.speaker === "Candidate").length
   const aiTurns = transcriptEntries.filter((entry) => entry.speaker === "AI").length
@@ -828,11 +539,10 @@ export default function VoiceAgentPage() {
     ? "Assistant is processing the latest candidate response."
     : isAISpeaking
       ? "Assistant audio playback is active."
-      : liveTranscript
-        ? "Candidate speech is being transcribed live."
+      : isListening
+        ? "Listening for candidate response."
         : aiResponse || "Session activity will appear here."
 
-  /* ── ACCESS GUARD ── */
   if (!isComplete) {
     return (
       <ProductShell currentPath="/voice-agent">
@@ -863,7 +573,7 @@ export default function VoiceAgentPage() {
                 {[
                   { n: "01", label: "Upload candidate CV" },
                   { n: "02", label: "Select a job description" },
-                  { n: "03", label: "Run analysis — Voice Agent unlocks" },
+                  { n: "03", label: "Run analysis - Voice Agent unlocks" },
                 ].map(({ n, label }) => (
                   <div
                     key={n}
@@ -895,7 +605,7 @@ export default function VoiceAgentPage() {
   return (
     <ProductShell currentPath="/voice-agent" mainClassName="space-y-8 md:space-y-10">
 
-      {/* ── PAGE HEADER ── */}
+      {/* â”€â”€ PAGE HEADER â”€â”€ */}
       <section>
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-4">
@@ -922,7 +632,7 @@ export default function VoiceAgentPage() {
         </div>
       </section>
 
-      {/* ── STATS STRIP ── */}
+      {/* â”€â”€ STATS STRIP â”€â”€ */}
       <section>
         <ProductPanel className="p-3 sm:p-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -979,7 +689,7 @@ export default function VoiceAgentPage() {
         </ProductPanel>
       </section>
 
-      {/* ── MAIN WORKSPACE ── */}
+      {/* â”€â”€ MAIN WORKSPACE â”€â”€ */}
       <section className="grid gap-6 xl:grid-cols-2">
 
         {/* LEFT: SESSION CONTROLS */}
@@ -1076,7 +786,7 @@ export default function VoiceAgentPage() {
                     <ul className="mt-3 space-y-2.5 text-xs text-white/52">
                       {[
                         "Keep the voice backend running.",
-                        "Use Chrome or Edge for speech recognition.",
+                        "Allow microphone capture in your browser.",
                         "Grant mic permission before starting.",
                       ].map((item) => (
                         <li key={item} className="flex gap-2.5">
@@ -1108,7 +818,7 @@ export default function VoiceAgentPage() {
                   <div className="text-base font-semibold text-white">Preparing the session</div>
                 </div>
                 <div className="mt-2 text-sm leading-6 text-white/58">
-                  Checking backend availability and initializing speech recognition.
+                  Checking backend availability and initializing microphone capture.
                 </div>
               </div>
             )}
@@ -1125,7 +835,7 @@ export default function VoiceAgentPage() {
                   <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Candidate input</div>
                     <div className="mt-2 line-clamp-3 text-sm leading-6 text-white/65">
-                      {liveTranscript || userSpeech || "Waiting for candidate speech…"}
+                      {userSpeech || "Waiting for candidate speech..."}
                     </div>
                   </div>
                   <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
@@ -1254,7 +964,7 @@ export default function VoiceAgentPage() {
             {/* TRANSCRIPT TAB */}
             <TabsContent value="transcript">
               <div className="max-h-[520px] space-y-2.5 overflow-y-auto pr-1">
-                {!transcriptEntries.length && !liveTranscript && (
+                {!transcriptEntries.length && (
                   <div className="rounded-[22px] border border-dashed border-white/12 bg-black/20 p-5 text-sm leading-7 text-white/48">
                     The transcript panel stays empty until the conversation starts. Candidate and assistant turns appear here with timestamps for later review.
                   </div>
@@ -1276,17 +986,6 @@ export default function VoiceAgentPage() {
                     <div className="mt-2 text-sm leading-6 text-white/70">{entry.text}</div>
                   </div>
                 ))}
-                {liveTranscript && (
-                  <div className="rounded-[22px] border border-dashed border-violet-400/18 bg-violet-400/8 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-200">
-                        Candidate speaking
-                      </div>
-                      <div className="text-[10px] text-violet-100/50">Live</div>
-                    </div>
-                    <div className="mt-2 text-sm leading-6 text-white/70">{liveTranscript}</div>
-                  </div>
-                )}
               </div>
             </TabsContent>
 
@@ -1294,7 +993,7 @@ export default function VoiceAgentPage() {
             <TabsContent value="insights">
               <div className="space-y-4">
                 <div className="rounded-[22px] border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/52">
-                  Live insights are directional signals derived from the transcript — not final hiring decisions.
+                  Live insights are directional signals derived from the transcript - not final hiring decisions.
                 </div>
                 <div className="space-y-3">
                   {insights.map((insight) => (

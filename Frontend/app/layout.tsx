@@ -1,11 +1,10 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { AnalysisProvider } from "@/context/analysis-context"
 import "./globals.css"
 
-const inter = Inter({ subsets: ["latin"] })
+const analyticsEnabled = process.env.NEXT_PUBLIC_ENABLE_VERCEL_ANALYTICS === "true"
 
 export const metadata: Metadata = {
   title: "GradVoice - AI-Powered CV Analysis",
@@ -27,11 +26,11 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${inter.className} antialiased`}>
+      <body className="antialiased">
         <AnalysisProvider>
           {children}
         </AnalysisProvider>
-        <Analytics />
+        {analyticsEnabled ? <Analytics /> : null}
       </body>
     </html>
   )
