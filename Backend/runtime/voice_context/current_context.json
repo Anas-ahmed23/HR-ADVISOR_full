@@ -5,39 +5,40 @@
         "job_id": "",
         "job_title": "Full-Stack Developer",
         "source": "gradvoice_hr_advisor",
-        "created_at": "2026-05-01T20:48:32.981144"
+        "created_at": "2026-05-02T00:21:16.893752"
     },
     "evaluation_result": {
         "classification": "Strong Match",
         "final_score": 0.84,
         "application_readiness": "Apply with Minor Improvements",
         "headline": "Strong Full-Stack Developer Match with Minor Gaps",
-        "short_verdict": "You are a strong fit for this Full-Stack Developer role, with robust experience in both front-end and back-end technologies. Your CV demonstrates relevant skills, education, and impact, but you are missing some specific requirements such as Angular and explicit application security practices. Addressing these minor gaps will further strengthen your application."
+        "short_verdict": "You are a strong fit for the Full-Stack Developer role, with robust experience across both front-end and back-end technologies. Your CV demonstrates hands-on delivery of production-grade systems, cloud deployment, and modern frameworks. Minor gaps exist in specific security practices and Angular experience, but overall you are well-prepared to apply."
     },
     "ats_summary": {
         "headline": "Strong Full-Stack Developer Candidate",
-        "short_verdict": "Your CV shows solid full-stack engineering experience, strong technical skills, and relevant education. You match most core requirements, but lack explicit Angular experience and direct evidence of application security practices. Upskilling in these areas will make your profile even more competitive.",
+        "short_verdict": "Your CV shows excellent alignment with the job requirements, including expertise in JavaScript, Python, React, Node.js, SQL, and cloud platforms. You have proven experience in delivering scalable, secure web applications and collaborating in Agile teams. To further strengthen your application, consider upskilling in Angular and deepening your security practices.",
         "top_strengths": [
             "Extensive experience with JavaScript, Python, React, Node.js, and SQL",
-            "Cloud deployment and DevOps skills (Azure, Docker, Git, CI/CD)",
-            "Strong education background in Computing & Digital Technology",
-            "Demonstrated impact in production-grade systems and performance optimization"
+            "Cloud-native deployment on Microsoft Azure",
+            "Production-grade RESTful API and database management",
+            "Strong Agile and teamwork skills",
+            "Demonstrated impact in performance optimization and security"
         ],
         "top_gaps": [
-            "No explicit Angular or Vue.js experience",
-            "Missing direct evidence of application security practices (beyond general security)",
-            "No clear mention of analytical skills in problem-solving context"
+            "No direct evidence of Angular experience",
+            "Limited explicit mention of advanced application security practices",
+            "Missing explicit demonstration of analytical skills"
         ]
     },
     "job_description_analysis": {
         "job_title": "Full-Stack Developer",
-        "job_summary": "The Full-Stack Developer is responsible for designing, developing, and maintaining both front-end and back-end components of web applications. The role requires building scalable systems, optimizing performance, and ensuring seamless integration between client-side and server-side logic. Collaboration with cross-functional teams is essential to deliver efficient and user-friendly solutions.",
+        "job_summary": "The Full-Stack Developer is responsible for designing, developing, and maintaining both front-end and back-end components of web applications. The role requires building scalable systems, optimizing performance, ensuring seamless integration, and collaborating with cross-functional teams. Candidates must have a bachelor’s degree and 2–5 years of relevant experience.",
         "requirements": [
             "Bachelor’s degree in computer science, software engineering, or related field",
-            "2 to 5 years of experience in full-stack or web development",
+            "2–5 years of full-stack or web development experience",
             "Strong knowledge of JavaScript, Python, or Java",
-            "Experience with front-end technologies (HTML, CSS, JavaScript, React, Angular, or Vue.js)",
-            "Experience with back-end frameworks (Node.js, Django, or Spring)",
+            "Experience with HTML, CSS, JavaScript, and frameworks like React, Angular, or Vue.js",
+            "Experience with back-end frameworks such as Node.js, Django, or Spring",
             "Familiarity with SQL or NoSQL databases",
             "Understanding of RESTful APIs and web services",
             "Proficiency with version control systems (Git)",
@@ -85,6 +86,10 @@
         "React",
         "Node.js",
         "Express.js",
+        "REST API Design",
+        "JWT",
+        "OAuth",
+        "RBAC",
         "MongoDB",
         "MySQL",
         "SQLite",
@@ -96,23 +101,19 @@
         "spaCy",
         "GLiNER",
         "RAG",
-        "JWT",
-        "OAuth",
-        "RBAC",
         "OOP",
         "SOLID",
         "Middleware",
         "Error Handling"
     ],
     "cv_skills_soft": [
-        "Teamwork",
         "Agile delivery",
+        "Teamwork",
         "Peer code reviews",
         "Sprint planning",
+        "Collaboration",
         "Problem-solving",
-        "Communication",
-        "Leadership",
-        "Collaboration"
+        "Communication"
     ],
     "jd_skills_hard": [
         "JavaScript",
@@ -144,69 +145,76 @@
             "jd_skill": "JavaScript",
             "cv_skill": "JavaScript",
             "match_type": "exact",
-            "evidence": "Listed under technical skills and used in production systems",
+            "evidence": "Listed in technical skills and used in production systems",
             "confidence": 1.0
         },
         {
             "jd_skill": "Python",
             "cv_skill": "Python",
             "match_type": "exact",
-            "evidence": "Listed under technical skills and used in AI/NLP pipelines",
+            "evidence": "Listed in technical skills and used in AI/NLP pipelines",
             "confidence": 1.0
+        },
+        {
+            "jd_skill": "Java",
+            "cv_skill": "Java",
+            "match_type": "exact",
+            "evidence": "Listed in technical skills",
+            "confidence": 0.8
         },
         {
             "jd_skill": "React",
             "cv_skill": "React",
             "match_type": "exact",
-            "evidence": "Used in multiple projects and listed under frontend skills",
+            "evidence": "Used in multiple projects and listed in technical skills",
             "confidence": 1.0
         },
         {
             "jd_skill": "Node.js",
             "cv_skill": "Node.js",
             "match_type": "exact",
-            "evidence": "Used in backend development and listed under technical skills",
+            "evidence": "Used in multiple projects and listed in technical skills",
             "confidence": 1.0
         },
         {
             "jd_skill": "SQL",
             "cv_skill": "SQL",
             "match_type": "exact",
-            "evidence": "Used in database schema design and query optimization",
+            "evidence": "Used in MySQL, MongoDB, SQLite, and listed in technical skills",
             "confidence": 1.0
         },
         {
             "jd_skill": "NoSQL",
             "cv_skill": "MongoDB",
             "match_type": "semantic",
-            "evidence": "MongoDB listed as database technology",
-            "confidence": 0.95
+            "evidence": "MongoDB listed and used in projects",
+            "confidence": 0.9
         },
         {
             "jd_skill": "Git",
             "cv_skill": "Git",
             "match_type": "exact",
-            "evidence": "Used for version control and CI/CD",
+            "evidence": "Listed in technical skills and used in CI/CD",
             "confidence": 1.0
         },
         {
             "jd_skill": "RESTful APIs",
             "cv_skill": "REST API Design",
             "match_type": "semantic",
-            "evidence": "Designed and deployed RESTful APIs in multiple projects",
-            "confidence": 0.95
+            "evidence": "REST API design and integration in multiple projects",
+            "confidence": 1.0
         },
         {
             "jd_skill": "Performance Optimization",
             "cv_skill": "Performance Optimization",
             "match_type": "semantic",
-            "evidence": "Boosted page load performance and optimized queries",
+            "evidence": "Boosted page load performance and query optimization",
             "confidence": 0.9
         },
         {
             "jd_skill": "Problem-solving",
             "cv_skill": "Problem-solving",
-            "match_type": "semantic",
+            "match_type": "exact",
             "evidence": "Resolved critical production incidents and defects",
             "confidence": 0.9
         },
@@ -214,14 +222,14 @@
             "jd_skill": "Communication",
             "cv_skill": "Communication",
             "match_type": "semantic",
-            "evidence": "Collaborated with distributed teams and led code reviews",
-            "confidence": 0.9
+            "evidence": "Collaboration and peer code reviews in Agile teams",
+            "confidence": 0.8
         },
         {
             "jd_skill": "Teamwork",
             "cv_skill": "Teamwork",
             "match_type": "exact",
-            "evidence": "Worked in Agile teams and coordinated deployments",
+            "evidence": "Worked in distributed teams and led Agile sprints",
             "confidence": 1.0
         }
     ],
@@ -230,15 +238,19 @@
         "Vue.js",
         "Django",
         "Spring",
+        "HTML",
+        "CSS",
         "Application Security",
         "Analytical skills"
     ],
     "missing_skills_grouped": [
         {
-            "group": "Frontend Frameworks",
+            "group": "Frontend Frameworks & Technologies",
             "skills": [
                 "Angular",
-                "Vue.js"
+                "Vue.js",
+                "HTML",
+                "CSS"
             ]
         },
         {
@@ -249,14 +261,9 @@
             ]
         },
         {
-            "group": "Security Practices",
+            "group": "Security & Analytical Skills",
             "skills": [
-                "Application Security"
-            ]
-        },
-        {
-            "group": "Soft Skills",
-            "skills": [
+                "Application Security",
                 "Analytical skills"
             ]
         }
@@ -266,62 +273,69 @@
         "experience_score": 1.0,
         "education_score": 1.0,
         "soft_skill_score": 0.9,
-        "responsibility_alignment_score": 0.95,
+        "responsibility_alignment_score": 0.9,
         "domain_fit_score": 1.0,
         "impact_score": 0.9,
-        "resume_quality_score": 0.95
+        "resume_quality_score": 0.9
     },
     "candidate_advice": {
-        "overall_advice": "You are well-positioned for this Full-Stack Developer role. To maximize your chances, consider gaining hands-on experience with Angular or Vue.js and explicitly highlight your application security practices. Strengthen your CV by mentioning analytical skills and providing examples of problem-solving in complex scenarios.",
+        "overall_advice": "You are well-positioned for this Full-Stack Developer role. To maximize your chances, highlight any experience with Angular or similar frameworks, and expand on your application security practices. Consider adding more detail about your analytical skills and front-end technologies like HTML and CSS. These minor improvements will make your application even stronger.",
         "priority_improvements": [
             {
                 "priority": 1,
-                "action": "Gain practical experience with Angular or Vue.js",
+                "action": "Gain or demonstrate experience with Angular or Vue.js.",
                 "reason": "The JD specifically requests experience with these frameworks, which are missing from your CV."
             },
             {
                 "priority": 2,
-                "action": "Demonstrate application security practices",
-                "reason": "While you mention general security, the JD expects explicit application security knowledge."
+                "action": "Expand on your application security expertise.",
+                "reason": "While you mention security practices, the JD expects explicit knowledge of application security."
             },
             {
                 "priority": 3,
-                "action": "Highlight analytical skills and problem-solving",
-                "reason": "The JD values analytical skills, so add examples of complex problem-solving to your CV."
+                "action": "Showcase your analytical skills.",
+                "reason": "Analytical skills are a key requirement and should be clearly evidenced."
+            },
+            {
+                "priority": 4,
+                "action": "Add explicit mention of HTML and CSS experience.",
+                "reason": "These are core front-end technologies required for the role."
             }
         ],
         "cv_improvements": [
-            "Add a section or bullet points describing your analytical skills and how you solved challenging problems.",
-            "Include any relevant experience or projects using Angular or Vue.js, even if self-taught or personal projects.",
-            "Explicitly mention application security practices, such as secure coding, vulnerability mitigation, or security audits."
+            "Add a section or bullet points detailing your experience with HTML and CSS.",
+            "Include any relevant projects or tasks involving Angular or Vue.js, if applicable.",
+            "Expand on your application security practices, such as secure coding, vulnerability mitigation, or penetration testing.",
+            "Provide examples of analytical problem-solving in your project descriptions."
         ],
         "learning_recommendations": [
-            "Complete a short course or tutorial on Angular or Vue.js and build a sample project.",
-            "Study application security fundamentals and best practices for web development.",
-            "Practice analytical thinking by tackling algorithmic challenges or contributing to open-source projects."
+            "Complete a short course or tutorial on Angular or Vue.js.",
+            "Review best practices in application security for web development.",
+            "Practice analytical skills through coding challenges or system design exercises."
         ],
         "interview_tips": [
-            "Prepare to discuss how you approach security in your applications, including specific techniques.",
-            "Be ready to explain your problem-solving process and give examples of analytical thinking.",
-            "If asked about Angular or Vue.js, show willingness to learn and mention any recent efforts to upskill."
+            "Prepare to discuss your approach to application security and how you ensure secure code.",
+            "Be ready to explain your analytical process when solving complex development problems.",
+            "If asked about Angular or Vue.js, show willingness to learn and adapt quickly."
         ]
     },
     "insights": {
         "strengths": [
-            "Strong technical foundation in full-stack development",
-            "Experience with cloud deployment and DevOps",
-            "Proven impact in production systems and performance optimization",
-            "Solid teamwork and communication skills"
+            "Strong technical foundation in JavaScript, Python, React, Node.js, and SQL",
+            "Experience with cloud deployment and production-grade systems",
+            "Demonstrated impact in performance optimization and security",
+            "Effective collaboration in Agile, distributed teams"
         ],
         "gaps": [
-            "No explicit Angular or Vue.js experience",
-            "Missing direct evidence of application security practices",
-            "Analytical skills not clearly highlighted"
+            "No direct evidence of Angular or Vue.js experience",
+            "Limited explicit mention of advanced application security",
+            "Missing clear demonstration of analytical skills",
+            "No explicit mention of HTML and CSS"
         ],
         "recommendations": [
-            "Upskill in Angular or Vue.js to meet JD requirements",
-            "Add explicit examples of application security practices to your CV",
-            "Highlight analytical skills and problem-solving achievements"
+            "Add or highlight any experience with Angular, Vue.js, HTML, and CSS.",
+            "Expand on your application security practices in your CV.",
+            "Provide examples of analytical skills in your project descriptions."
         ]
     },
     "voice_agent_facts": [
@@ -342,7 +356,7 @@
                 "What skills match the job?",
                 "What are the candidate's matching skills?"
             ],
-            "answer": "The main matched skills are: JavaScript, Python, React, Node.js, SQL, NoSQL, Git, RESTful APIs, Performance Optimization, Problem-solving, Communication, Teamwork."
+            "answer": "The main matched skills are: JavaScript, Python, Java, React, Node.js, SQL, NoSQL, Git, RESTful APIs, Performance Optimization, Problem-solving, Communication, Teamwork."
         },
         {
             "fact_id": "missing_skills_fact",
@@ -352,7 +366,7 @@
                 "What should the candidate improve?",
                 "What are the main gaps?"
             ],
-            "answer": "The main missing skills are: Angular, Vue.js, Django, Spring, Application Security, Analytical skills."
+            "answer": "The main missing skills are: Angular, Vue.js, Django, Spring, HTML, CSS, Application Security, Analytical skills."
         },
         {
             "fact_id": "advice_fact",
@@ -361,7 +375,7 @@
                 "What advice would you give the candidate?",
                 "How can the candidate improve?"
             ],
-            "answer": "You are well-positioned for this Full-Stack Developer role. To maximize your chances, consider gaining hands-on experience with Angular or Vue.js and explicitly highlight your application security practices. Strengthen your CV by mentioning analytical skills and providing examples of problem-solving in complex scenarios."
+            "answer": "You are well-positioned for this Full-Stack Developer role. To maximize your chances, highlight any experience with Angular or similar frameworks, and expand on your application security practices. Consider adding more detail about your analytical skills and front-end technologies like HTML and CSS. These minor improvements will make your application even stronger."
         },
         {
             "fact_id": "jd_requirements_fact",
@@ -371,7 +385,7 @@
                 "What are the JD requirements?",
                 "What skills does the job need?"
             ],
-            "answer": "The main job requirements are: Bachelor’s degree in computer science, software engineering, or related field, 2 to 5 years of experience in full-stack or web development, Strong knowledge of JavaScript, Python, or Java, Experience with front-end technologies (HTML, CSS, JavaScript, React, Angular, or Vue.js), Experience with back-end frameworks (Node.js, Django, or Spring), Familiarity with SQL or NoSQL databases, Understanding of RESTful APIs and web services, Proficiency with version control systems (Git), Knowledge of application security and performance optimization, Strong problem-solving and analytical skills, Good communication and teamwork abilities."
+            "answer": "The main job requirements are: Bachelor’s degree in computer science, software engineering, or related field, 2–5 years of full-stack or web development experience, Strong knowledge of JavaScript, Python, or Java, Experience with HTML, CSS, JavaScript, and frameworks like React, Angular, or Vue.js, Experience with back-end frameworks such as Node.js, Django, or Spring, Familiarity with SQL or NoSQL databases, Understanding of RESTful APIs and web services, Proficiency with version control systems (Git), Knowledge of application security and performance optimization, Strong problem-solving and analytical skills, Good communication and teamwork abilities."
         },
         {
             "fact_id": "jd_responsibilities_fact",
@@ -399,7 +413,7 @@
             "chunk_id": "summary_chunk",
             "chunk_type": "summary",
             "title": "Overall Evaluation Summary",
-            "content": "This evaluation is for the Full-Stack Developer role. The candidate is classified as Strong Match with a final score of 84.0%. You are a strong fit for this Full-Stack Developer role, with robust experience in both front-end and back-end technologies. Your CV demonstrates relevant skills, education, and impact, but you are missing some specific requirements such as Angular and explicit application security practices. Addressing these minor gaps will further strengthen your application.",
+            "content": "This evaluation is for the Full-Stack Developer role. The candidate is classified as Strong Match with a final score of 84.0%. You are a strong fit for the Full-Stack Developer role, with robust experience across both front-end and back-end technologies. Your CV demonstrates hands-on delivery of production-grade systems, cloud deployment, and modern frameworks. Minor gaps exist in specific security practices and Angular experience, but overall you are well-prepared to apply.",
             "keywords": [
                 "Full-Stack Developer",
                 "Strong Match",
@@ -413,7 +427,7 @@
             "chunk_id": "skills_chunk",
             "chunk_type": "skills",
             "title": "Skills Analysis",
-            "content": "The candidate matches these main skills: JavaScript, Python, React, Node.js, SQL, NoSQL, Git, RESTful APIs, Performance Optimization, Problem-solving, Communication, Teamwork. The main missing skills are: Angular, Vue.js, Django, Spring, Application Security, Analytical skills.",
+            "content": "The candidate matches these main skills: JavaScript, Python, Java, React, Node.js, SQL, NoSQL, Git, RESTful APIs, Performance Optimization, Problem-solving, Communication, Teamwork. The main missing skills are: Angular, Vue.js, Django, Spring, HTML, CSS, Application Security, Analytical skills.",
             "keywords": [
                 "Full-Stack Developer",
                 "Strong Match",
@@ -421,16 +435,18 @@
                 "missing skills",
                 "JavaScript",
                 "Python",
+                "Java",
                 "React",
                 "Node.js",
                 "SQL",
                 "NoSQL",
                 "Git",
-                "RESTful APIs",
                 "Angular",
                 "Vue.js",
                 "Django",
                 "Spring",
+                "HTML",
+                "CSS",
                 "Application Security",
                 "Analytical skills"
             ]
@@ -439,7 +455,7 @@
             "chunk_id": "advice_chunk",
             "chunk_type": "advice",
             "title": "Candidate Advice",
-            "content": "You are well-positioned for this Full-Stack Developer role. To maximize your chances, consider gaining hands-on experience with Angular or Vue.js and explicitly highlight your application security practices. Strengthen your CV by mentioning analytical skills and providing examples of problem-solving in complex scenarios.",
+            "content": "You are well-positioned for this Full-Stack Developer role. To maximize your chances, highlight any experience with Angular or similar frameworks, and expand on your application security practices. Consider adding more detail about your analytical skills and front-end technologies like HTML and CSS. These minor improvements will make your application even stronger.",
             "keywords": [
                 "advice",
                 "recommendations",
@@ -452,7 +468,7 @@
             "chunk_id": "jd_requirements_chunk",
             "chunk_type": "job_description",
             "title": "Job Description Requirements",
-            "content": "This job description is for the Full-Stack Developer role. The summary is: The Full-Stack Developer is responsible for designing, developing, and maintaining both front-end and back-end components of web applications. The role requires building scalable systems, optimizing performance, and ensuring seamless integration between client-side and server-side logic. Collaboration with cross-functional teams is essential to deliver efficient and user-friendly solutions. The main requirements are: Bachelor’s degree in computer science, software engineering, or related field, 2 to 5 years of experience in full-stack or web development, Strong knowledge of JavaScript, Python, or Java, Experience with front-end technologies (HTML, CSS, JavaScript, React, Angular, or Vue.js), Experience with back-end frameworks (Node.js, Django, or Spring), Familiarity with SQL or NoSQL databases, Understanding of RESTful APIs and web services, Proficiency with version control systems (Git), Knowledge of application security and performance optimization, Strong problem-solving and analytical skills, Good communication and teamwork abilities. The main responsibilities are: Design, develop, and maintain full-stack web applications, Write clean, efficient, and maintainable code, Develop front-end interfaces using HTML, CSS, JavaScript, and frameworks, Build back-end systems using frameworks, Integrate RESTful APIs and third-party services, Manage and optimize databases, Debug, test, and optimize application performance, Ensure application scalability, security, and responsiveness, Work with version control systems, Collaborate with cross-functional teams. The main tools and technologies are: JavaScript, Python, Java, React, Angular, Vue.js, Node.js, Django, Spring, HTML, CSS, SQL, NoSQL, Git.",
+            "content": "This job description is for the Full-Stack Developer role. The summary is: The Full-Stack Developer is responsible for designing, developing, and maintaining both front-end and back-end components of web applications. The role requires building scalable systems, optimizing performance, ensuring seamless integration, and collaborating with cross-functional teams. Candidates must have a bachelor’s degree and 2–5 years of relevant experience. The main requirements are: Bachelor’s degree in computer science, software engineering, or related field, 2–5 years of full-stack or web development experience, Strong knowledge of JavaScript, Python, or Java, Experience with HTML, CSS, JavaScript, and frameworks like React, Angular, or Vue.js, Experience with back-end frameworks such as Node.js, Django, or Spring, Familiarity with SQL or NoSQL databases, Understanding of RESTful APIs and web services, Proficiency with version control systems (Git), Knowledge of application security and performance optimization, Strong problem-solving and analytical skills, Good communication and teamwork abilities. The main responsibilities are: Design, develop, and maintain full-stack web applications, Write clean, efficient, and maintainable code, Develop front-end interfaces using HTML, CSS, JavaScript, and frameworks, Build back-end systems using frameworks, Integrate RESTful APIs and third-party services, Manage and optimize databases, Debug, test, and optimize application performance, Ensure application scalability, security, and responsiveness, Work with version control systems, Collaborate with cross-functional teams. The main tools and technologies are: JavaScript, Python, Java, React, Angular, Vue.js, Node.js, Django, Spring, HTML, CSS, SQL, NoSQL, Git.",
             "keywords": [
                 "Full-Stack Developer",
                 "Web Application Development",
@@ -463,10 +479,10 @@
                 "tools",
                 "technologies",
                 "Bachelor’s degree in computer science, software engineering, or related field",
-                "2 to 5 years of experience in full-stack or web development",
+                "2–5 years of full-stack or web development experience",
                 "Strong knowledge of JavaScript, Python, or Java",
-                "Experience with front-end technologies (HTML, CSS, JavaScript, React, Angular, or Vue.js)",
-                "Experience with back-end frameworks (Node.js, Django, or Spring)",
+                "Experience with HTML, CSS, JavaScript, and frameworks like React, Angular, or Vue.js",
+                "Experience with back-end frameworks such as Node.js, Django, or Spring",
                 "Familiarity with SQL or NoSQL databases",
                 "Understanding of RESTful APIs and web services",
                 "Proficiency with version control systems (Git)",
@@ -485,20 +501,20 @@
         {
             "job_title": "Cloud Application Developer",
             "fit_score": 90,
-            "reason": "You have strong experience with cloud platforms (Azure), RESTful APIs, and full-stack development, making you well-suited for cloud application roles.",
+            "reason": "You have strong experience in cloud-native deployment, RESTful APIs, and production-grade systems on Microsoft Azure. Your skills in Node.js, Python, and database management are highly relevant for cloud application development.",
             "cv_match_skills": [
                 "Microsoft Azure",
                 "Node.js",
-                "React",
+                "Python",
                 "REST API Design",
-                "Docker"
+                "MongoDB"
             ],
             "seniority": "Mid-Level"
         },
         {
             "job_title": "AI Software Engineer",
             "fit_score": 85,
-            "reason": "Your CV shows hands-on experience with AI/NLP pipelines, Python, and cloud deployment, which aligns well with AI engineering roles.",
+            "reason": "Your CV demonstrates hands-on experience with AI/NLP pipelines, LLM integration, and cloud deployment. You have used SBERT, spaCy, GLiNER, and RAG in production environments, making you a strong fit for AI engineering roles.",
             "cv_match_skills": [
                 "Python",
                 "SBERT",
@@ -509,15 +525,15 @@
             "seniority": "Mid-Level"
         },
         {
-            "job_title": "DevOps Engineer",
+            "job_title": "Backend Developer",
             "fit_score": 80,
-            "reason": "You have practical skills in CI/CD, Docker, Git, and cloud deployment, supporting a transition to DevOps engineering.",
+            "reason": "You have extensive backend experience with Node.js, Express.js, REST API design, and multiple databases. Your security and performance optimization skills further support backend development roles.",
             "cv_match_skills": [
-                "CI/CD",
-                "Docker",
-                "Git",
-                "Microsoft Azure",
-                "Environment Configuration"
+                "Node.js",
+                "Express.js",
+                "REST API Design",
+                "MySQL",
+                "MongoDB"
             ],
             "seniority": "Mid-Level"
         }
@@ -528,69 +544,76 @@
                 "jd_skill": "JavaScript",
                 "cv_skill": "JavaScript",
                 "match_type": "exact",
-                "evidence": "Listed under technical skills and used in production systems",
+                "evidence": "Listed in technical skills and used in production systems",
                 "confidence": 1.0
             },
             {
                 "jd_skill": "Python",
                 "cv_skill": "Python",
                 "match_type": "exact",
-                "evidence": "Listed under technical skills and used in AI/NLP pipelines",
+                "evidence": "Listed in technical skills and used in AI/NLP pipelines",
                 "confidence": 1.0
+            },
+            {
+                "jd_skill": "Java",
+                "cv_skill": "Java",
+                "match_type": "exact",
+                "evidence": "Listed in technical skills",
+                "confidence": 0.8
             },
             {
                 "jd_skill": "React",
                 "cv_skill": "React",
                 "match_type": "exact",
-                "evidence": "Used in multiple projects and listed under frontend skills",
+                "evidence": "Used in multiple projects and listed in technical skills",
                 "confidence": 1.0
             },
             {
                 "jd_skill": "Node.js",
                 "cv_skill": "Node.js",
                 "match_type": "exact",
-                "evidence": "Used in backend development and listed under technical skills",
+                "evidence": "Used in multiple projects and listed in technical skills",
                 "confidence": 1.0
             },
             {
                 "jd_skill": "SQL",
                 "cv_skill": "SQL",
                 "match_type": "exact",
-                "evidence": "Used in database schema design and query optimization",
+                "evidence": "Used in MySQL, MongoDB, SQLite, and listed in technical skills",
                 "confidence": 1.0
             },
             {
                 "jd_skill": "NoSQL",
                 "cv_skill": "MongoDB",
                 "match_type": "semantic",
-                "evidence": "MongoDB listed as database technology",
-                "confidence": 0.95
+                "evidence": "MongoDB listed and used in projects",
+                "confidence": 0.9
             },
             {
                 "jd_skill": "Git",
                 "cv_skill": "Git",
                 "match_type": "exact",
-                "evidence": "Used for version control and CI/CD",
+                "evidence": "Listed in technical skills and used in CI/CD",
                 "confidence": 1.0
             },
             {
                 "jd_skill": "RESTful APIs",
                 "cv_skill": "REST API Design",
                 "match_type": "semantic",
-                "evidence": "Designed and deployed RESTful APIs in multiple projects",
-                "confidence": 0.95
+                "evidence": "REST API design and integration in multiple projects",
+                "confidence": 1.0
             },
             {
                 "jd_skill": "Performance Optimization",
                 "cv_skill": "Performance Optimization",
                 "match_type": "semantic",
-                "evidence": "Boosted page load performance and optimized queries",
+                "evidence": "Boosted page load performance and query optimization",
                 "confidence": 0.9
             },
             {
                 "jd_skill": "Problem-solving",
                 "cv_skill": "Problem-solving",
-                "match_type": "semantic",
+                "match_type": "exact",
                 "evidence": "Resolved critical production incidents and defects",
                 "confidence": 0.9
             },
@@ -598,14 +621,14 @@
                 "jd_skill": "Communication",
                 "cv_skill": "Communication",
                 "match_type": "semantic",
-                "evidence": "Collaborated with distributed teams and led code reviews",
-                "confidence": 0.9
+                "evidence": "Collaboration and peer code reviews in Agile teams",
+                "confidence": 0.8
             },
             {
                 "jd_skill": "Teamwork",
                 "cv_skill": "Teamwork",
                 "match_type": "exact",
-                "evidence": "Worked in Agile teams and coordinated deployments",
+                "evidence": "Worked in distributed teams and led Agile sprints",
                 "confidence": 1.0
             }
         ],
@@ -614,6 +637,8 @@
             "Vue.js",
             "Django",
             "Spring",
+            "HTML",
+            "CSS",
             "Application Security",
             "Analytical skills"
         ],
