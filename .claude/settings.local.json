@@ -31,7 +31,10 @@
       "Bash(pip show *)",
       "mcp__plugin_claude-mem_mcp-search__get_observations",
       "mcp__plugin_claude-mem_mcp-search__smart_outline",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\User\\\\OneDrive\\\\Documents\\\\HR-ADVISOR_full\" -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "mcp__plugin_claude-mem_mcp-search__search"
     ]
   }
 }
