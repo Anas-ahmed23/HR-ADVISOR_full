@@ -34,7 +34,13 @@
       "Bash(node *)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\User\\\\OneDrive\\\\Documents\\\\HR-ADVISOR_full\" -Recurse -Force)",
       "Bash(Select-Object FullName)",
-      "mcp__plugin_claude-mem_mcp-search__search"
+      "mcp__plugin_claude-mem_mcp-search__search",
+      "Bash(Get-Content *)",
+      "PowerShell($content = Get-Content \"C:\\\\Users\\\\User\\\\OneDrive\\\\Documents\\\\HR-ADVISOR_full\\\\Frontend\\\\app\\\\voice-agent\\\\page.tsx\" -Raw; Write-Output $content.Substring\\(0, [Math]::Min\\(15000, $content.Length\\)\\))",
+      "PowerShell($content = Get-Content \"C:\\\\Users\\\\User\\\\OneDrive\\\\Documents\\\\HR-ADVISOR_full\\\\Frontend\\\\app\\\\voice-agent\\\\page.tsx\" -Raw; Write-Output $content.Substring\\(15000, [Math]::Min\\(15000, $content.Length - 15000\\)\\))",
+      "PowerShell($content = Get-Content \"C:\\\\Users\\\\User\\\\OneDrive\\\\Documents\\\\HR-ADVISOR_full\\\\Frontend\\\\app\\\\voice-agent\\\\page.tsx\" -Raw; Write-Output $content.Substring\\(30000, [Math]::Min\\(15000, $content.Length - 30000\\)\\))",
+      "PowerShell($content = Get-Content \"C:\\\\Users\\\\User\\\\OneDrive\\\\Documents\\\\HR-ADVISOR_full\\\\Frontend\\\\app\\\\voice-agent\\\\page.tsx\" -Raw; Write-Output $content.Substring\\(43000\\))",
+      "PowerShell(Get-Content *)"
     ]
   }
 }
