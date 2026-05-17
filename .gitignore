@@ -6,6 +6,7 @@ Frontend/build/
 Frontend/dist/
 Frontend/.env.local
 Frontend/.env
+Frontend/certificates/
 
 # Python
 .venv/

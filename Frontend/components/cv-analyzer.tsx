@@ -4,10 +4,13 @@ import { useState, useRef, useEffect, useMemo } from "react"
 import { ATSDashboard } from "@/components/ats-dashboard"
 import { ProductPanel } from "@/components/product-shell"
 import { useAnalysis } from "@/context/analysis-context"
+import type { LLMAnalysis } from "@/types/analysis"
 import { Button } from "@/components/ui/button"
 import {
   AlertCircle,
+  Archive,
   ArrowRight,
+  BarChart3,
   Briefcase,
   CheckCircle2,
   ChevronDown,
@@ -17,7 +20,9 @@ import {
   Loader2,
   Search,
   Sparkles,
+  Table2,
   Upload,
+  Users,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -224,6 +229,115 @@ const CATEGORY_COLORS: Record<string, { accent: string; bg: string; border: stri
 /* ─────────────────────────────────────────
    DROP ZONE (CV only)
 ───────────────────────────────────────── */
+interface BatchAnalysisItem {
+  cv_name: string
+  analysis?: LLMAnalysis | null
+  result?: (LLMAnalysis & { llm_analysis?: LLMAnalysis }) | null
+  error?: string | null
+}
+
+interface BatchAnalysisResponse {
+  batch: true
+  archive?: string
+  job_description?: string
+  total?: number
+  processed?: number
+  skipped_files?: string[]
+  results: BatchAnalysisItem[]
+}
+
+interface BatchCandidateRow {
+  cvName: string
+  overall: number | null
+  technical: number | null
+  experience: number | null
+  education: number | null
+  softSkills: number | null
+  responsibility: number | null
+  recommendation: string
+  classification: string
+  error?: string | null
+}
+
+function isBatchAnalysis(data: unknown): data is BatchAnalysisResponse {
+  if (!data || typeof data !== "object") return false
+  const value = data as { batch?: unknown; results?: unknown }
+  return value.batch === true && Array.isArray(value.results)
+}
+
+function isZipFile(file: File | null) {
+  return Boolean(file?.name.toLowerCase().endsWith(".zip"))
+}
+
+function unwrapBatchAnalysis(item: BatchAnalysisItem): LLMAnalysis | null {
+  if (item.analysis) return item.analysis
+  if (!item.result) return null
+  return item.result.llm_analysis ?? item.result
+}
+
+function normalizeScore(value: unknown): number | null {
+  if (typeof value !== "number" || Number.isNaN(value)) return null
+  const percentage = value <= 1 ? value * 100 : value
+  return Math.max(0, Math.min(100, Math.round(percentage)))
+}
+
+function formatScore(value: number | null) {
+  return value === null ? "-" : `${value}%`
+}
+
+function recommendationFromScore(score: number | null) {
+  if (score === null) return "Manual review"
+  if (score >= 80) return "Strong shortlist"
+  if (score >= 65) return "Interview review"
+  if (score >= 50) return "Manual review"
+  return "Not recommended"
+}
+
+function buildBatchRows(batch: BatchAnalysisResponse): BatchCandidateRow[] {
+  return batch.results
+    .map(item => {
+      const analysis = unwrapBatchAnalysis(item)
+      if (!analysis) {
+        return {
+          cvName: item.cv_name,
+          overall: null,
+          technical: null,
+          experience: null,
+          education: null,
+          softSkills: null,
+          responsibility: null,
+          recommendation: "Analysis failed",
+          classification: "Failed",
+          error: item.error ?? "No analysis returned",
+        }
+      }
+
+      const scores = analysis.score_breakdown ?? {}
+      const overall = normalizeScore(analysis.evaluation_result?.final_score ?? analysis.final_score)
+      const classification = analysis.evaluation_result?.classification ?? analysis.classification ?? "Unclassified"
+
+      return {
+        cvName: item.cv_name,
+        overall,
+        technical: normalizeScore(scores.skill_score ?? analysis.skill_score),
+        experience: normalizeScore(scores.experience_score ?? analysis.experience_score),
+        education: normalizeScore(scores.education_score ?? analysis.education_score),
+        softSkills: normalizeScore(scores.soft_skill_score),
+        responsibility: normalizeScore(scores.responsibility_alignment_score),
+        recommendation:
+          analysis.evaluation_result?.application_readiness ??
+          recommendationFromScore(overall),
+        classification,
+        error: item.error,
+      }
+    })
+    .sort((a, b) => {
+      if (a.error && !b.error) return 1
+      if (!a.error && b.error) return -1
+      return (b.overall ?? -1) - (a.overall ?? -1)
+    })
+}
+
 function DropZone({
   label,
   sublabel,
@@ -315,10 +429,12 @@ function JDPicker({
   selectedFilename,
   onSelect,
   loading,
+  stretch = false,
 }: {
   selectedFilename: string | null
   onSelect: (jd: JDEntry) => void
   loading: boolean
+  stretch?: boolean
 }) {
   const [search, setSearch] = useState("")
   const [openCategory, setOpenCategory] = useState<string | null>("AI & Machine Learning")
@@ -358,7 +474,7 @@ function JDPicker({
   const showAll = search.trim() !== "" || openCategory === "__all__"
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className={cn("flex flex-col gap-3", stretch && "min-h-0 flex-1")}>
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
@@ -372,7 +488,10 @@ function JDPicker({
       </div>
 
       {/* Category accordion list */}
-      <div className="max-h-[340px] space-y-1.5 overflow-y-auto pr-0.5">
+      <div className={cn(
+        "space-y-1.5 overflow-y-auto pr-1 [scrollbar-color:rgba(167,139,250,0.36)_rgba(255,255,255,0.04)] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-violet-300/30 [&::-webkit-scrollbar-thumb:hover]:bg-violet-300/45 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-white/[0.035]",
+        stretch ? "min-h-[340px] flex-1" : "max-h-[340px]",
+      )}>
         {grouped.length === 0 && (
           <div className="rounded-2xl border border-dashed border-white/10 py-8 text-center text-sm text-white/30">
             No job descriptions match your search.
@@ -524,6 +643,265 @@ function AnalyzingView({ cvName, jdName }: { cvName: string; jdName: string }) {
 /* ─────────────────────────────────────────
    MAIN COMPONENT
 ───────────────────────────────────────── */
+const BATCH_ANALYSIS_STAGES = [
+  "Extracting candidate archive...",
+  "Reading CV files in sequence...",
+  "Evaluating each CV against the job description...",
+  "Normalizing scores for comparison...",
+  "Building enterprise screening table...",
+]
+
+function BatchAnalyzingView({ archiveName, jdName }: { archiveName: string; jdName: string }) {
+  const [stageIdx, setStageIdx] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setStageIdx(i => Math.min(i + 1, BATCH_ANALYSIS_STAGES.length - 1))
+    }, 8000)
+    return () => clearInterval(id)
+  }, [])
+
+  const progress = Math.round(((stageIdx + 1) / BATCH_ANALYSIS_STAGES.length) * 100)
+
+  return (
+    <div className="mx-auto flex min-h-[68vh] w-full max-w-6xl flex-col justify-center gap-6 py-12">
+      <div className="flex flex-col gap-5 rounded-[32px] border border-cyan-300/14 bg-white/[0.035] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.28)] md:p-8">
+        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/25 bg-cyan-300/10">
+              <Archive className="h-6 w-6 text-cyan-200" />
+              <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-violet-300 shadow-[0_0_18px_rgba(167,139,250,0.75)]" />
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-100/55">Bulk CV screening</div>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-white md:text-3xl">
+                Screening candidate archive
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/48">
+                Each CV is being evaluated against the same job description. The result will be a ranked table focused on score signals and hiring readiness.
+              </p>
+            </div>
+          </div>
+          <div className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs font-medium text-white/55">
+            {progress}% complete
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-violet-300/16 bg-violet-300/8 px-4 py-3 text-sm text-violet-100/75">
+            <Archive className="h-4 w-4 shrink-0" />
+            <span className="truncate">{archiveName}</span>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-cyan-300/16 bg-cyan-300/8 px-4 py-3 text-sm text-cyan-100/75">
+            <Briefcase className="h-4 w-4 shrink-0" />
+            <span className="truncate">{jdName}</span>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center justify-between text-[11px] text-white/35">
+            <span>Batch pipeline</span>
+            <span>Stage {stageIdx + 1} of {BATCH_ANALYSIS_STAGES.length}</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-white/8">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-300 transition-all duration-[1400ms] ease-out"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <div key={stageIdx} className="mt-3 animate-stage-in text-sm font-semibold text-white/78">
+            {BATCH_ANALYSIS_STAGES[stageIdx]}
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-[24px] border border-white/10 bg-black/20">
+          <div className="grid grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_1fr] gap-3 border-b border-white/8 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/35">
+            <span>CV file</span>
+            <span>Overall</span>
+            <span>Skills</span>
+            <span>Experience</span>
+            <span>Recommendation</span>
+          </div>
+          {[0, 1, 2, 3].map(row => (
+            <div key={row} className="grid grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_1fr] gap-3 border-b border-white/[0.045] px-4 py-4 last:border-b-0">
+              <div className="h-3 rounded-full bg-white/10" />
+              <div className="h-3 rounded-full bg-cyan-300/18" />
+              <div className="h-3 rounded-full bg-violet-300/18" />
+              <div className="h-3 rounded-full bg-white/10" />
+              <div className="h-3 rounded-full bg-emerald-300/16" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BatchResultsDashboard({
+  batch,
+  onReset,
+}: {
+  batch: BatchAnalysisResponse
+  onReset: () => void
+}) {
+  const rows = useMemo(() => buildBatchRows(batch), [batch])
+  const successfulRows = rows.filter(row => !row.error && row.overall !== null)
+  const averageScore = successfulRows.length
+    ? Math.round(successfulRows.reduce((sum, row) => sum + (row.overall ?? 0), 0) / successfulRows.length)
+    : null
+  const strongMatches = rows.filter(row => !row.error && (row.overall ?? 0) >= 75).length
+  const reviewQueue = rows.filter(row => row.error || (row.overall ?? 0) < 75).length
+
+  return (
+    <div className="animate-result-in space-y-6">
+      <div className="flex flex-col gap-5 rounded-[32px] border border-white/10 bg-white/[0.035] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.28)] md:p-7">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/24 bg-cyan-300/10">
+              <Table2 className="h-6 w-6 text-cyan-200" />
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-100/55">Batch analysis complete</div>
+              <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-white">
+                Bulk CV screening table
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/50">
+                Ranked candidate results for one job description. The detailed single-CV recommendation view is intentionally replaced with the score fields HR teams need for fast screening.
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={onReset}
+            className="w-full rounded-full border border-white/12 bg-white/[0.06] text-white hover:bg-white/[0.1] lg:w-auto"
+          >
+            Analyze another batch
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-4">
+          <div className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+            <Users className="h-4 w-4 text-cyan-200/80" />
+            <div className="mt-3 text-2xl font-semibold text-white">{batch.total ?? rows.length}</div>
+            <div className="mt-1 text-xs text-white/38">CVs screened</div>
+          </div>
+          <div className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+            <BarChart3 className="h-4 w-4 text-violet-200/80" />
+            <div className="mt-3 text-2xl font-semibold text-white">{formatScore(averageScore)}</div>
+            <div className="mt-1 text-xs text-white/38">Average score</div>
+          </div>
+          <div className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+            <CheckCircle2 className="h-4 w-4 text-emerald-200/80" />
+            <div className="mt-3 text-2xl font-semibold text-white">{strongMatches}</div>
+            <div className="mt-1 text-xs text-white/38">Strong matches</div>
+          </div>
+          <div className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+            <FileSearch className="h-4 w-4 text-amber-200/80" />
+            <div className="mt-3 text-2xl font-semibold text-white">{reviewQueue}</div>
+            <div className="mt-1 text-xs text-white/38">Need review</div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 text-sm md:grid-cols-2">
+          <div className="min-w-0 rounded-2xl border border-violet-300/14 bg-violet-300/8 px-4 py-3 text-violet-100/70">
+            <span className="text-white/38">Archive: </span>
+            <span className="break-words">{batch.archive ?? "Uploaded ZIP"}</span>
+          </div>
+          <div className="min-w-0 rounded-2xl border border-cyan-300/14 bg-cyan-300/8 px-4 py-3 text-cyan-100/70">
+            <span className="text-white/38">Job description: </span>
+            <span className="break-words">{batch.job_description ?? "Selected JD"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+        <div className="overflow-x-auto">
+          <table className="min-w-[1040px] w-full border-collapse">
+            <thead>
+              <tr className="border-b border-white/10 bg-white/[0.035] text-left text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
+                <th className="px-5 py-4">CV name</th>
+                <th className="px-4 py-4">Overall</th>
+                <th className="px-4 py-4">Technical</th>
+                <th className="px-4 py-4">Experience</th>
+                <th className="px-4 py-4">Education</th>
+                <th className="px-4 py-4">Soft skills</th>
+                <th className="px-4 py-4">Responsibility</th>
+                <th className="px-5 py-4">Hiring recommendation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={`${row.cvName}-${index}`} className="border-b border-white/[0.055] last:border-b-0 hover:bg-white/[0.025]">
+                  <td className="px-5 py-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className={cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
+                        row.error ? "border-red-300/20 bg-red-300/8" : "border-white/10 bg-white/[0.04]"
+                      )}>
+                        {row.error
+                          ? <AlertCircle className="h-4 w-4 text-red-200" />
+                          : <FileText className="h-4 w-4 text-white/48" />
+                        }
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-white">{row.cvName}</div>
+                        <div className={cn("mt-0.5 text-xs", row.error ? "text-red-200/70" : "text-white/35")}>
+                          {row.error ?? row.classification}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <ScorePill score={row.overall} emphasis />
+                  </td>
+                  <td className="px-4 py-4"><ScorePill score={row.technical} /></td>
+                  <td className="px-4 py-4"><ScorePill score={row.experience} /></td>
+                  <td className="px-4 py-4"><ScorePill score={row.education} /></td>
+                  <td className="px-4 py-4"><ScorePill score={row.softSkills} /></td>
+                  <td className="px-4 py-4"><ScorePill score={row.responsibility} /></td>
+                  <td className="px-5 py-4">
+                    <span className={cn(
+                      "inline-flex max-w-[220px] items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
+                      row.error
+                        ? "border-red-300/18 bg-red-300/8 text-red-100/75"
+                        : (row.overall ?? 0) >= 75
+                          ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100/80"
+                          : "border-amber-300/20 bg-amber-300/10 text-amber-100/80"
+                    )}>
+                      <span className="truncate">{row.recommendation}</span>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {batch.skipped_files && batch.skipped_files.length > 0 && (
+        <div className="rounded-2xl border border-amber-300/18 bg-amber-300/8 px-4 py-3 text-sm text-amber-100/72">
+          Skipped {batch.skipped_files.length} unsupported file{batch.skipped_files.length === 1 ? "" : "s"} from the ZIP.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ScorePill({ score, emphasis = false }: { score: number | null; emphasis?: boolean }) {
+  return (
+    <span className={cn(
+      "inline-flex min-w-[58px] justify-center rounded-full border px-3 py-1.5 text-xs font-semibold",
+      score === null
+        ? "border-white/10 bg-white/[0.035] text-white/35"
+        : emphasis
+          ? "border-violet-300/24 bg-violet-300/12 text-violet-100"
+          : "border-white/10 bg-white/[0.045] text-white/68"
+    )}>
+      {formatScore(score)}
+    </span>
+  )
+}
+
 export function CVAnalyzer() {
   const [cvFile, setCvFile] = useState<File | null>(null)
   const [jdFile, setJdFile] = useState<File | null>(null)
@@ -531,9 +909,11 @@ export function CVAnalyzer() {
   const [jdMode, setJdMode] = useState<"library" | "upload">("library")
   const [jdLoading, setJdLoading] = useState(false)
   const { result, setResult, clearResult, isComplete } = useAnalysis()
+  const [batchResult, setBatchResult] = useState<BatchAnalysisResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [wasRestored, setWasRestored] = useState(false)
+  const isBatchCandidate = isZipFile(cvFile)
 
   /* Track if result was pre-loaded from localStorage (not this session's run) */
   useEffect(() => {
@@ -549,6 +929,12 @@ export function CVAnalyzer() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result])
 
+  useEffect(() => {
+    if (batchResult) {
+      window.scrollTo({ top: 0, behavior: "smooth" })
+    }
+  }, [batchResult])
+
   const switchJdMode = (mode: "library" | "upload") => {
     if (mode === jdMode) return
     setJdMode(mode)
@@ -557,6 +943,7 @@ export function CVAnalyzer() {
   }
 
   const canRun = !!cvFile && !!jdFile && !loading && !jdLoading
+  const workspacePanelHeight = jdMode === "upload" ? "xl:h-[760px]" : "xl:h-[586px]"
 
   const handleSelectJd = async (jd: JDEntry) => {
     setSelectedJd(jd)
@@ -581,6 +968,7 @@ export function CVAnalyzer() {
     setLoading(true)
     setError(null)
     setWasRestored(false)
+    setBatchResult(null)
     clearResult()
     try {
       const form = new FormData()
@@ -592,7 +980,11 @@ export function CVAnalyzer() {
         throw new Error(body.error ?? `Server error ${res.status}`)
       }
       const data = await res.json()
-      setResult(data)
+      if (isBatchAnalysis(data)) {
+        setBatchResult(data)
+      } else {
+        setResult(data)
+      }
     } catch (err: any) {
       setError(err.message ?? "Analysis failed. Please try again.")
     } finally {
@@ -602,6 +994,7 @@ export function CVAnalyzer() {
 
   const handleReset = () => {
     clearResult()
+    setBatchResult(null)
     setError(null)
     setCvFile(null)
     setJdFile(null)
@@ -609,6 +1002,10 @@ export function CVAnalyzer() {
   }
 
   /* ── RESULTS VIEW ── */
+  if (batchResult) {
+    return <BatchResultsDashboard batch={batchResult} onReset={handleReset} />
+  }
+
   if (result) {
     return (
       <div className="animate-result-in">
@@ -633,6 +1030,15 @@ export function CVAnalyzer() {
 
   /* ── ANALYZING VIEW ── */
   if (loading) {
+    if (isBatchCandidate) {
+      return (
+        <BatchAnalyzingView
+          archiveName={cvFile?.name ?? "CV archive"}
+          jdName={selectedJd?.title ?? jdFile?.name ?? "Job Description"}
+        />
+      )
+    }
+
     return (
       <AnalyzingView
         cvName={cvFile?.name ?? "CV"}
@@ -655,7 +1061,7 @@ export function CVAnalyzer() {
           CV Analyzer
         </h1>
         <p className="max-w-2xl text-base leading-8 text-white/60">
-          Upload a candidate CV, choose a job description, and receive a detailed fit score, skill gap breakdown, and hiring recommendations — ready in seconds.
+          Upload one CV or a ZIP of CVs, choose a job description, and receive the right analysis view for individual or bulk screening.
         </p>
       </div>
 
@@ -668,12 +1074,15 @@ export function CVAnalyzer() {
               "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
               cvFile ? "border-violet-400/30 bg-violet-400/15" : "border-white/10 bg-white/[0.04]"
             )}>
-              <FileText className={cn("h-4 w-4", cvFile ? "text-violet-300" : "text-white/35")} />
+              {isBatchCandidate
+                ? <Archive className="h-4 w-4 text-violet-300" />
+                : <FileText className={cn("h-4 w-4", cvFile ? "text-violet-300" : "text-white/35")} />
+              }
             </div>
             <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">Candidate CV</div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">{isBatchCandidate ? "CV Batch" : "Candidate CV"}</div>
               <div className={cn("mt-1 text-sm font-semibold", cvFile ? "text-white" : "text-white/35")}>
-                {cvFile ? "Uploaded" : "Pending"}
+                {cvFile ? isBatchCandidate ? "Batch uploaded" : "Uploaded" : "Pending"}
               </div>
               <div className="mt-0.5 truncate text-xs text-white/35">
                 {cvFile ? cvFile.name : "No file selected"}
@@ -717,7 +1126,7 @@ export function CVAnalyzer() {
                 {canRun ? "Ready" : "Waiting"}
               </div>
               <div className="mt-0.5 text-xs text-white/35">
-                {cvFile && jdFile ? "Both ready" : "Awaiting setup"}
+                {cvFile && jdFile ? isBatchCandidate ? "Batch ready" : "Both ready" : "Awaiting setup"}
               </div>
             </div>
           </div>
@@ -747,26 +1156,26 @@ export function CVAnalyzer() {
       </ProductPanel>
 
       {/* MAIN WORKSPACE */}
-      <div className="grid gap-6 xl:grid-cols-[1fr_1.1fr]">
+      <div className="grid items-start gap-6 xl:grid-cols-[1fr_1.1fr]">
 
         {/* LEFT: CV UPLOAD + SELECTED JD DISPLAY */}
-        <ProductPanel className="p-6 md:p-7">
+        <ProductPanel className={cn("self-start p-6 md:p-7", workspacePanelHeight)}>
           <div className="space-y-6">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs uppercase tracking-[0.22em] text-white/35">Step 1</div>
-                <div className="mt-1.5 text-xl font-semibold tracking-[-0.02em] text-white">Upload your CV</div>
+                <div className="mt-1.5 text-xl font-semibold tracking-[-0.02em] text-white">Upload CVs</div>
               </div>
               <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/55">
-                {cvFile ? "CV ready" : "Pending"}
+                {cvFile ? isBatchCandidate ? "Batch ready" : "CV ready" : "Pending"}
               </div>
             </div>
 
             {/* CV Drop zone */}
             <DropZone
-              label="Candidate CV"
-              sublabel="PDF, DOCX, or TXT"
-              accept=".pdf,.docx,.txt"
+              label="Candidate CV or ZIP"
+              sublabel="PDF, DOCX, TXT, or ZIP"
+              accept=".pdf,.docx,.txt,.zip"
               file={cvFile}
               onFile={setCvFile}
               icon={FileText}
@@ -872,18 +1281,18 @@ export function CVAnalyzer() {
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Analyzing — this may take a moment…
+                    {isBatchCandidate ? "Screening batch..." : "Analyzing..."}
                   </>
                 ) : (
                   <>
                     <Sparkles className="h-4 w-4" />
-                    Run Analysis
+                    {isBatchCandidate ? "Run Batch Analysis" : "Run Analysis"}
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
               </Button>
               {!cvFile && (
-                <p className="text-center text-xs text-white/28">Upload your CV above to get started</p>
+                <p className="text-center text-xs text-white/28">Upload one CV or a ZIP of CVs above to get started</p>
               )}
               {cvFile && !jdFile && (
                 <p className="text-center text-xs text-white/28">Select a job description from the library →</p>
@@ -893,11 +1302,11 @@ export function CVAnalyzer() {
         </ProductPanel>
 
         {/* RIGHT: JD PICKER */}
-        <div className="space-y-4">
+        <div className={cn("min-h-0", workspacePanelHeight)}>
 
           {/* JD Library */}
-          <ProductPanel className={cn("p-5 md:p-6 transition-opacity duration-200", jdMode === "upload" && "pointer-events-none opacity-35")}>
-            <div className="space-y-4">
+          <ProductPanel className={cn("flex h-full p-5 transition-opacity duration-200 md:p-6", jdMode === "upload" && "pointer-events-none opacity-35")}>
+            <div className="flex h-full min-h-0 w-full flex-col gap-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-xs uppercase tracking-[0.22em] text-white/35">Step 2 · Job description library</div>
@@ -911,6 +1320,7 @@ export function CVAnalyzer() {
                 selectedFilename={selectedJd?.filename ?? null}
                 onSelect={handleSelectJd}
                 loading={jdLoading}
+                stretch
               />
             </div>
           </ProductPanel>

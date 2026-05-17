@@ -759,12 +759,12 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid items-stretch gap-6 lg:grid-cols-2">
             {/* CV Analyzer card */}
             <ProductPanel className="group h-full p-7 md:p-8">
               <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-violet-500/18 via-violet-400/8 to-transparent" />
               <div className="relative flex h-full flex-col gap-6">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex min-h-[190px] items-start justify-between gap-4">
                   <div>
                     <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-violet-400/20 bg-violet-400/10">
                       <FileSearch className="h-6 w-6 text-violet-300" />
@@ -780,7 +780,7 @@ export default function HomePage() {
                   </span>
                 </div>
 
-                <div className="grid gap-2.5">
+                <div className="grid min-h-[158px] content-start gap-2.5">
                   {[
                     "Upload CVs and job descriptions in seconds",
                     "Evaluate skill alignment, experience depth, and coverage gaps",
@@ -796,9 +796,9 @@ export default function HomePage() {
                   ))}
                 </div>
 
-                <div className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+                <div className="flex min-h-[196px] flex-col rounded-[22px] border border-white/8 bg-black/20 p-4">
                   <div className="text-[10px] uppercase tracking-[0.22em] text-white/30">Sample output</div>
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-3 flex flex-1 flex-col justify-center space-y-3">
                     {[
                       { label: "Technical alignment", pct: 94, color: "bg-violet-400" },
                       { label: "Role coverage", pct: 82, color: "bg-cyan-400" },
@@ -838,7 +838,7 @@ export default function HomePage() {
             <ProductPanel className="group h-full p-7 md:p-8">
               <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-cyan-400/16 via-cyan-400/7 to-transparent" />
               <div className="relative flex h-full flex-col gap-6">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex min-h-[190px] items-start justify-between gap-4">
                   <div>
                     <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10">
                       <Mic className="h-6 w-6 text-cyan-300" />
@@ -854,7 +854,7 @@ export default function HomePage() {
                   </span>
                 </div>
 
-                <div className="grid gap-2.5">
+                <div className="grid min-h-[158px] content-start gap-2.5">
                   {[
                     "Start real-time AI interview sessions instantly",
                     "Capture transcripts, conversational signals, and insights live",
@@ -870,9 +870,9 @@ export default function HomePage() {
                   ))}
                 </div>
 
-                <div className="rounded-[22px] border border-white/8 bg-black/20 p-4">
+                <div className="flex min-h-[196px] flex-col rounded-[22px] border border-white/8 bg-black/20 p-4">
                   <div className="text-[10px] uppercase tracking-[0.22em] text-white/30">Live transcript</div>
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-3 flex flex-1 flex-col justify-center space-y-2">
                     {[
                       { speaker: "AI", text: "What backend systems have you fully owned?", accent: "text-cyan-300" },
                       { speaker: "Candidate", text: "I managed the billing and notification services end-to-end.", accent: "text-violet-300" },
@@ -917,9 +917,9 @@ export default function HomePage() {
           </div>
 
           <ProductPanel className="p-6 md:p-8">
-            <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="grid items-stretch gap-6 xl:grid-cols-[1.05fr_0.95fr]">
               <div className="space-y-4">
-                <div className="rounded-[22px] border border-white/10 bg-black/20 p-5">
+                <div className="flex min-h-[376px] flex-col rounded-[22px] border border-white/10 bg-black/20 p-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-[10px] uppercase tracking-[0.22em] text-white/30">
@@ -934,8 +934,8 @@ export default function HomePage() {
                     </span>
                   </div>
 
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
+                  <div className="mt-5 grid flex-1 gap-3 sm:grid-cols-2">
+                    <div className="h-full rounded-2xl border border-white/8 bg-white/[0.025] p-4">
                       <div className="text-[10px] uppercase tracking-[0.2em] text-white/30">What it surfaces</div>
                       <ul className="mt-3 space-y-2.5 text-sm text-white/62">
                         {[
@@ -950,7 +950,7 @@ export default function HomePage() {
                         ))}
                       </ul>
                     </div>
-                    <div className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
+                    <div className="h-full rounded-2xl border border-white/8 bg-white/[0.025] p-4">
                       <div className="text-[10px] uppercase tracking-[0.2em] text-white/30">What it flags</div>
                       <ul className="mt-3 space-y-2.5 text-sm text-white/62">
                         {[
@@ -974,7 +974,7 @@ export default function HomePage() {
                     { label: "Decision support", value: "Shortlist recommendation", sub: "Advance to technical interview with architecture follow-up." },
                     { label: "Review time", value: "Condensed", sub: "Recruiters read signals, not raw document noise." },
                   ].map((card) => (
-                    <div key={card.label} className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div key={card.label} className="h-full rounded-[22px] border border-white/10 bg-black/20 p-4">
                       <div className="text-[10px] uppercase tracking-[0.2em] text-white/30">{card.label}</div>
                       <div className="mt-2.5 text-base font-semibold text-white">{card.value}</div>
                       <div className="mt-1.5 text-[12px] leading-5 text-white/50">{card.sub}</div>
@@ -984,7 +984,7 @@ export default function HomePage() {
               </div>
 
               <div className="space-y-4">
-                <div className="rounded-[22px] border border-white/10 bg-black/20 p-5">
+                <div className="flex min-h-[376px] flex-col rounded-[22px] border border-white/10 bg-black/20 p-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-[10px] uppercase tracking-[0.22em] text-white/30">
@@ -999,7 +999,7 @@ export default function HomePage() {
                     </span>
                   </div>
 
-                  <div className="mt-5 space-y-2.5">
+                  <div className="mt-5 flex flex-1 flex-col justify-center space-y-2.5">
                     {[
                       { speaker: "AI interviewer", text: "What backend systems have you fully owned?", accent: "text-cyan-200" },
                       { speaker: "Candidate", text: "I managed our notification and billing services — including deployment and monitoring.", accent: "text-violet-200" },
@@ -1019,13 +1019,13 @@ export default function HomePage() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                  <div className="h-full rounded-[22px] border border-white/10 bg-black/20 p-4">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/30">AI interview summary</div>
                     <div className="mt-2.5 text-[12px] leading-6 text-white/55">
                       Strong ownership indicators, relevant production experience, and credible process improvements. Further validation needed in leadership depth.
                     </div>
                   </div>
-                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                  <div className="h-full rounded-[22px] border border-white/10 bg-black/20 p-4">
                     <div className="text-[10px] uppercase tracking-[0.2em] text-white/30">Recruiter recommendation</div>
                     <div className="mt-2.5 text-[12px] leading-6 text-white/55">
                       Proceed to technical interview with scenario-based architecture evaluation.
