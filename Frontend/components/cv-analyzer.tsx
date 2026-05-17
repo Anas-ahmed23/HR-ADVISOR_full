@@ -815,24 +815,34 @@ function BatchResultsDashboard({
       </div>
 
       <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-        <div className="overflow-x-auto">
-          <table className="min-w-[1040px] w-full border-collapse">
+        <div className="overflow-hidden">
+          <table className="w-full table-fixed border-collapse">
+            <colgroup>
+              <col className="w-[24%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[9%]" />
+              <col className="w-[9%]" />
+              <col className="w-[9%]" />
+              <col className="w-[11%]" />
+              <col className="w-[22%]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-white/10 bg-white/[0.035] text-left text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">
-                <th className="px-5 py-4">CV name</th>
-                <th className="px-4 py-4">Overall</th>
-                <th className="px-4 py-4">Technical</th>
-                <th className="px-4 py-4">Experience</th>
-                <th className="px-4 py-4">Education</th>
-                <th className="px-4 py-4">Soft skills</th>
-                <th className="px-4 py-4">Responsibility</th>
-                <th className="px-5 py-4">Hiring recommendation</th>
+                <th className="px-4 py-4">CV name</th>
+                <th className="px-2 py-4">Overall</th>
+                <th className="px-2 py-4">Technical</th>
+                <th className="px-2 py-4">Experience</th>
+                <th className="px-2 py-4">Education</th>
+                <th className="px-2 py-4">Soft skills</th>
+                <th className="px-2 py-4">Responsibility</th>
+                <th className="px-4 py-4">Hiring recommendation</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row, index) => (
                 <tr key={`${row.cvName}-${index}`} className="border-b border-white/[0.055] last:border-b-0 hover:bg-white/[0.025]">
-                  <td className="px-5 py-4">
+                  <td className="min-w-0 px-4 py-4">
                     <div className="flex min-w-0 items-center gap-3">
                       <div className={cn(
                         "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
@@ -844,24 +854,26 @@ function BatchResultsDashboard({
                         }
                       </div>
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-white">{row.cvName}</div>
+                        <div className="max-w-[clamp(8rem,15vw,12rem)] truncate text-sm font-semibold text-white" title={row.cvName}>
+                          {row.cvName}
+                        </div>
                         <div className={cn("mt-0.5 text-xs", row.error ? "text-red-200/70" : "text-white/35")}>
                           {row.error ?? row.classification}
                         </div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-4">
+                  <td className="px-2 py-4">
                     <ScorePill score={row.overall} emphasis />
                   </td>
-                  <td className="px-4 py-4"><ScorePill score={row.technical} /></td>
-                  <td className="px-4 py-4"><ScorePill score={row.experience} /></td>
-                  <td className="px-4 py-4"><ScorePill score={row.education} /></td>
-                  <td className="px-4 py-4"><ScorePill score={row.softSkills} /></td>
-                  <td className="px-4 py-4"><ScorePill score={row.responsibility} /></td>
-                  <td className="px-5 py-4">
+                  <td className="px-2 py-4"><ScorePill score={row.technical} /></td>
+                  <td className="px-2 py-4"><ScorePill score={row.experience} /></td>
+                  <td className="px-2 py-4"><ScorePill score={row.education} /></td>
+                  <td className="px-2 py-4"><ScorePill score={row.softSkills} /></td>
+                  <td className="px-2 py-4"><ScorePill score={row.responsibility} /></td>
+                  <td className="px-4 py-4">
                     <span className={cn(
-                      "inline-flex max-w-[220px] items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
+                      "inline-flex max-w-full items-center rounded-full border px-3 py-1.5 text-xs font-semibold",
                       row.error
                         ? "border-red-300/18 bg-red-300/8 text-red-100/75"
                         : (row.overall ?? 0) >= 75

@@ -1,0 +1,34 @@
+Loading Flair NER model...
+2026-05-17 12:45:01,620 SequenceTagger predicts: Dictionary with 20 tags: <unk>, O, S-ORG, S-MISC, B-PER, E-PER, S-LOC, B-ORG, E-ORG, I-PER, S-PER, B-MISC, I-MISC, E-MISC, I-ORG, B-LOC, E-LOC, I-LOC, <START>, <STOP>
+Model loaded successfully.
+[backend_server] Starting on http://127.0.0.1:5001 (POST /analyze)
+ * Serving Flask app 'backend_server'
+ * Debug mode: on
+Loading Flair NER model...
+2026-05-17 12:45:15,818 SequenceTagger predicts: Dictionary with 20 tags: <unk>, O, S-ORG, S-MISC, B-PER, E-PER, S-LOC, B-ORG, E-ORG, I-PER, S-PER, B-MISC, I-MISC, E-MISC, I-ORG, B-LOC, E-LOC, I-LOC, <START>, <STOP>
+Model loaded successfully.
+[backend_server] Starting on http://127.0.0.1:5001 (POST /analyze)
+[backend_server] POST /analyze received
+[backend_server] ZIP batch received, running batch analysis...
+[backend_server] Batch CV 1/11: Omar_FullStackAI_v2.pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 2/11: Anas_Bahaa_AI_Engineer.pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 3/11: Anas_Bahaa_RESUME.pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 4/11: Anas_Bahaa_Resume_2025.pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 5/11: Anas_Bahaa_Software_Engineer_CV (1) (1).pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 6/11: Anas_Bahaa_Software_Engineer_CV (1).pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 7/11: Anas_Bahaa_Software_Engineer_CV.pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 8/11: AnasBahaa_SoftwareEngineer_CV.pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 9/11: Java-Developer(Chennai,India).pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 10/11: Judy_hazem_cv.pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
+[backend_server] Batch CV 11/11: Omar_DataScientist_v3.pdf
+Saved runtime voice context JSON: C:\Users\kadoo\OneDrive\Desktop\gradvoiceprefinal\HR-ADVISOR_full-master\Backend\runtime\voice_context\current_context.json
