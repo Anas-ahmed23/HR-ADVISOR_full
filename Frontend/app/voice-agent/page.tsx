@@ -234,7 +234,7 @@ function InsightCard({
 
 export default function VoiceAgentPage() {
   const { isComplete } = useAnalysis()
-  const voiceServerUrl = process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "http://localhost:5000"
+  const voiceServerUrl = process.env.NEXT_PUBLIC_VOICE_SERVER_URL || "/api/voice"
 
   const [userSpeech, setUserSpeech] = useState("")
   const [aiResponse, setAiResponse] = useState("")
@@ -341,9 +341,13 @@ export default function VoiceAgentPage() {
     })
 
     if (typeof window !== "undefined") {
+      const isSecureContext = window.isSecureContext
       const hasGetUserMedia = !!navigator.mediaDevices?.getUserMedia
       const hasWebRTC = typeof RTCPeerConnection !== "undefined"
-      if (!hasGetUserMedia || !hasWebRTC) {
+      if (!isSecureContext) {
+        setSpeechSupported(false)
+        setError("Microphone sessions require HTTPS or localhost. Open the secure HTTPS frontend URL to use the voice agent.")
+      } else if (!hasGetUserMedia || !hasWebRTC) {
         setSpeechSupported(false)
         setError("This browser does not support WebRTC microphone sessions.")
       }

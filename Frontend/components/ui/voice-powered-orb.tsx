@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, FC } from "react";
-import { Renderer, Program, Mesh, Triangle, Vec3 } from "ogl";
+import { Renderer, Program, Mesh, Triangle, Vec3, type OGLRenderingContext } from "ogl";
 import { cn } from "@/lib/utils";
 
 interface VoicePoweredOrbProps {
@@ -27,8 +27,7 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const microphoneRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
-  const animationFrameRef = useRef<number>();
+  const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
   const vert = /* glsl */ `
@@ -295,7 +294,7 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
     if (!container) return;
 
     let rendererInstance: Renderer | null = null;
-    let glContext: WebGLRenderingContext | WebGL2RenderingContext | null = null;
+    let glContext: OGLRenderingContext | null = null;
     let rafId: number;
     let program: Program | null = null;
 
@@ -471,28 +470,6 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
     vert,
     frag
   ]);
-
-  // Handle microphone state changes separately
-  useEffect(() => {
-    let isMounted = true;
-
-    const handleMicrophoneState = async () => {
-      if (enableVoiceControl) {
-        const success = await initMicrophone();
-        if (!isMounted) return;
-        // Update the microphone state in the WebGL context if needed
-      } else {
-        stopMicrophone();
-      }
-    };
-
-    handleMicrophoneState();
-
-    return () => {
-      isMounted = false;
-      // Don't stop microphone here as it will be handled by the main cleanup
-    };
-  }, [enableVoiceControl]);
 
   return (
     <div
